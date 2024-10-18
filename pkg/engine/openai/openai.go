@@ -13,7 +13,6 @@ import (
 type BackendConfig struct {
 	BackendURL  *url.URL
 	APIKey      string
-	APIVersion  string
 	IsActive    bool
 	Connections int64
 }
@@ -31,7 +30,6 @@ func NewOpenAIEngine() *OpenAIEngine {
 		{
 			BackendURL:  mustParseURL("https://api.openai.com"),
 			APIKey:      "YOUR_API_KEY_1",
-			APIVersion:  "2023-06-01-preview",
 			IsActive:    true,
 			Connections: 0,
 		},
@@ -76,11 +74,6 @@ func (e *OpenAIEngine) ModifyRequest(r *http.Request) {
 	r.URL.Host = backend.BackendURL.Host
 
 	r.Header.Set("Authorization", "Bearer "+backend.APIKey)
-
-	query := r.URL.Query()
-	query.Set("api-version", backend.APIVersion)
-	r.URL.RawQuery = query.Encode()
-
 	e.logger.Infof("Modified request for backend: %s", backend.BackendURL)
 }
 
