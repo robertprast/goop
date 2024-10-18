@@ -75,7 +75,7 @@ func (e *OpenAIEngine) ModifyRequest(r *http.Request) {
 	r.URL.Scheme = backend.BackendURL.Scheme
 	r.URL.Host = backend.BackendURL.Host
 
-	r.Header.Set("api-key", backend.APIKey)
+	r.Header.Set("Authorization", "Bearer "+backend.APIKey)
 
 	query := r.URL.Query()
 	query.Set("api-version", backend.APIVersion)

@@ -33,7 +33,7 @@ type AzureOpenAIEngine struct {
 func NewAzureOpenAIEngine() *AzureOpenAIEngine {
 	backends := []*BackendConfig{
 		{
-			BackendURL:  mustParseURL("https://test.azure.com"),
+			BackendURL:  mustParseURL("http://localhost:1234"),
 			APIKey:      "1234",
 			APIVersion:  "2024-04-01-preview",
 			IsActive:    true,
@@ -89,7 +89,7 @@ func (e *AzureOpenAIEngine) ModifyRequest(r *http.Request) {
 
 	logrus.Infof("URL : %s", r.URL.String())
 
-	r.Header.Set("api-key", backend.APIKey)
+	r.Header.Set("Authorization", "Bearer "+backend.APIKey)
 
 	query := r.URL.Query()
 	query.Set("api-version", backend.APIVersion)
