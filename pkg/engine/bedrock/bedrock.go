@@ -36,7 +36,8 @@ func NewBedrockEngine(configStr string) (*BedrockEngine, error) {
 
 	err := yaml.Unmarshal([]byte(configStr), &goopConfig)
 	if err != nil {
-		logrus.Fatalf("Error parsing Azure config: %v", err)
+		logrus.Errorf("Unable to unmarshal Bedrock config: %v", err)
+		return &BedrockEngine{}, err
 	}
 
 	if !goopConfig.Enabled {
