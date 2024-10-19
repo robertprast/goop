@@ -7,9 +7,11 @@ require (
 	github.com/aws/aws-sdk-go-v2/config v1.28.0
 	github.com/google/uuid v1.6.0
 	github.com/sirupsen/logrus v1.9.3
+	golang.org/x/oauth2 v0.23.0
 )
 
 require (
+	cloud.google.com/go/compute/metadata v0.3.0 // indirect
 	github.com/aws/aws-sdk-go-v2/credentials v1.17.41 // indirect
 	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.16.17 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/configsources v1.3.21 // indirect

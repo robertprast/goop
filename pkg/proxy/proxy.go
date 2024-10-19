@@ -10,6 +10,7 @@ import (
 	azure "github.com/robertprast/goop/pkg/engine/azure_openai"
 	"github.com/robertprast/goop/pkg/engine/bedrock"
 	"github.com/robertprast/goop/pkg/engine/openai"
+	"github.com/robertprast/goop/pkg/engine/vertex"
 	"github.com/sirupsen/logrus"
 )
 
@@ -55,6 +56,7 @@ func engineMiddleware(next http.Handler) http.Handler {
 			"/openai":  func() engine.Engine { return openai.NewOpenAIEngine() },
 			"/bedrock": func() engine.Engine { return bedrock.NewBedrockEngine() },
 			"/azure":   func() engine.Engine { return azure.NewAzureOpenAIEngine() },
+			"/vertex":  func() engine.Engine { return vertex.NewVertexEngine() },
 		}
 
 		var eng engine.Engine
