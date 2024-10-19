@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/robertprast/goop/pkg/engine"
-	"github.com/robertprast/goop/pkg/utils"
 	"github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v2"
 )
@@ -20,35 +19,29 @@ type BackendConfig struct {
 }
 
 type OpenAIEngine struct {
-	backends  []*BackendConfig
+	backend   *BackendConfig
 	whitelist []string
 	prefix    string
 	logger    *logrus.Entry
 }
 
 func NewOpenAIEngineWithConfig(configStr string) (*OpenAIEngine, error) {
-	var config map[string]BackendConfig
+	var backend BackendConfig
 
-	err := yaml.Unmarshal([]byte(configStr), &config)
+	// Unmarshal YAML into slice of BackendConfig
+	if err := yaml.Unmarshal([]byte(configStr), &backend); err != nil {
+		logrus.Errorf("Error parsing OpenAI config: %v", err)
+		return nil, fmt.Errorf("error parsing OpenAI config: %w", err)
+	}
+
+	url, err := url.Parse(backend.BaseUrl)
 	if err != nil {
-		logrus.Fatalf("Error parsing Azure config: %v", err)
+		return nil, err
 	}
-
-	var backends []*BackendConfig
-	for _, cfg := range config {
-		backends = append(backends, &BackendConfig{
-			BackendURL: utils.MustParseURL(cfg.BaseUrl),
-			APIKey:     cfg.APIKey,
-			APIVersion: cfg.APIVersion,
-		})
-	}
-
-	if len(backends) == 0 {
-		return nil, fmt.Errorf("no backends found in config")
-	}
+	backend.BackendURL = url
 
 	engine := &OpenAIEngine{
-		backends:  backends,
+		backend:   &backend,
 		whitelist: []string{"/v1/chat/completions", "/v1/completions"},
 		prefix:    "/openai",
 		logger:    logrus.WithField("engine", "openai"),
@@ -71,19 +64,14 @@ func (e *OpenAIEngine) IsAllowedPath(path string) bool {
 }
 
 func (e *OpenAIEngine) ModifyRequest(r *http.Request) {
-	backend := e.backends[0] // Use the first backend since OpenAI has single API domain
-	if backend == nil {
-		logrus.Error("No active backends found")
-		return
-	}
 
 	r.URL.Path = strings.TrimPrefix(r.URL.Path, e.prefix)
-	r.Host = backend.BackendURL.Host
-	r.URL.Scheme = backend.BackendURL.Scheme
-	r.URL.Host = backend.BackendURL.Host
+	r.Host = e.backend.BackendURL.Host
+	r.URL.Scheme = e.backend.BackendURL.Scheme
+	r.URL.Host = e.backend.BackendURL.Host
 
-	r.Header.Set("Authorization", "Bearer "+backend.APIKey)
-	e.logger.Infof("Modified request for backend: %s", backend.BackendURL)
+	r.Header.Set("Authorization", "Bearer "+e.backend.APIKey)
+	e.logger.Infof("Modified request for backend: %s", e.backend.BackendURL)
 }
 
 func (e *OpenAIEngine) HandleResponseAfterFinish(resp *http.Response, body []byte) {

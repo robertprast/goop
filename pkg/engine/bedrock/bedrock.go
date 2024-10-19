@@ -15,7 +15,6 @@ import (
 	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/robertprast/goop/pkg/engine"
-	"github.com/robertprast/goop/pkg/utils"
 	"github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v2"
 )
@@ -56,9 +55,13 @@ func NewBedrockEngine(configStr string) (*BedrockEngine, error) {
 		region = "us-east-1"
 	}
 	endpoint := "https://bedrock-runtime." + region + ".amazonaws.com"
+	url, err := url.Parse(endpoint)
+	if err != nil {
+		return nil, err
+	}
 
 	engine := &BedrockEngine{
-		backend:   utils.MustParseURL(endpoint),
+		backend:   url,
 		whitelist: []string{"/model/", "/invoke", "/converse", "/converse-stream"},
 		prefix:    "/bedrock",
 		signer:    v4.NewSigner(),

@@ -1,24 +1,18 @@
 engines:
 
   openai:
-    backend1:
-      api_key: "${OPENAI_API_KEY}"
-      # base_url: "https://api.openai.com/v1"
+    api_key: "${OPENAI_API_KEY}"
+    base_url: "http://localhost:1234/v1"
+    # api_key: "${OPENAI_API_KEY}"
+    # base_url: "https://api.openai.com/v1"
+
+  azure:
+    - api_key: "${OPENAI_API_KEY}"
       base_url: "http://localhost:1234/v1"
-    backend2:
-      api_key: "${OPENAI_API_KEY}"
-      # base_url: "https://api.openai.com/v1"
-      base_url: "http://localhost:1234/v1"
+      api_version: "2024-04-01-preview"
 
   vertex:
-    vertex_backend1:
-      api_endpoint: "https://us-central1-aiplatform.googleapis.com"
+    enabled: true
 
   bedrock:
     enabled: true
-
-  azure:
-      azure_backend1:
-        api_key: "${OPENAI_API_KEY}"
-        base_url: "http://localhost:1234/v1"
-        api_version: "2024-04-01-preview"

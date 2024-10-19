@@ -69,6 +69,9 @@ func engineMiddleware(config utils.Config) middleware {
 				eng, err = bedrock.NewBedrockEngine(config.Engines["bedrock"])
 			case "vertex":
 				eng, err = vertex.NewVertexEngine(config.Engines["vertex"])
+			default:
+				http.Error(w, "Engine not found", http.StatusNotFound)
+				return
 			}
 
 			if err != nil {

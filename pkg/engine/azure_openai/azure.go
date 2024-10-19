@@ -8,7 +8,6 @@ import (
 	"sync/atomic"
 
 	"github.com/robertprast/goop/pkg/engine"
-	"github.com/robertprast/goop/pkg/utils"
 	"github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v2"
 )
@@ -34,17 +33,22 @@ type AzureOpenAIEngine struct {
 }
 
 func NewAzureOpenAIEngineWithConfig(configStr string) (*AzureOpenAIEngine, error) {
-	var config map[string]BackendConfig
-
+	var config []BackendConfig
 	err := yaml.Unmarshal([]byte(configStr), &config)
 	if err != nil {
-		logrus.Fatalf("Error parsing Azure config: %v", err)
+		logrus.Warnf("Error parsing Azure config: %v", err)
+		return &AzureOpenAIEngine{}, fmt.Errorf("error parsing Azure config: %v", err)
 	}
 
 	var backends []*BackendConfig
 	for _, cfg := range config {
+		url, err := url.Parse(cfg.BaseUrl)
+		if err != nil {
+			return nil, err
+		}
+
 		backends = append(backends, &BackendConfig{
-			BackendURL:  utils.MustParseURL(cfg.BaseUrl),
+			BackendURL:  url,
 			APIKey:      cfg.APIKey,
 			APIVersion:  cfg.APIVersion,
 			IsActive:    true,

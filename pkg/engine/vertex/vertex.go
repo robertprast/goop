@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/robertprast/goop/pkg/engine"
-	"github.com/robertprast/goop/pkg/utils"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/oauth2/google"
 	"gopkg.in/yaml.v2"
@@ -25,35 +24,35 @@ type VertexEngine struct {
 }
 
 type vertexConfig struct {
-	BaseUrl string `yaml:"api_endpoint"`
-	APIKey  string `yaml:"api_key"`
+	Enabled bool `yaml:"enabled"`
 }
 
 func NewVertexEngine(configStr string) (*VertexEngine, error) {
-	var config map[string]vertexConfig
+	var goopConfig vertexConfig
 
-	err := yaml.Unmarshal([]byte(configStr), &config)
+	err := yaml.Unmarshal([]byte(configStr), &goopConfig)
 	if err != nil {
-		logrus.Fatalf("Error parsing Vertex config: %v", err)
+		logrus.Errorf("Error parsing Vertex config: %v", err)
+		return &VertexEngine{}, fmt.Errorf("error parsing Vertex config: %w", err)
 	}
 
-	var backends []*BackendConfig
-	for _, cfg := range config {
-		backends = append(backends, &BackendConfig{
-			BackendURL: utils.MustParseURL(cfg.BaseUrl),
-		})
+	if !goopConfig.Enabled {
+		logrus.Info("Bedrock engine is disabled")
+		return &VertexEngine{}, err
 	}
 
-	logrus.Infof("Backends: %#v", backends)
-
-	if len(backends) == 0 {
-		return &VertexEngine{}, fmt.Errorf("no backends found in config")
+	url, err := url.Parse("https://us-central1-aiplatform.googleapis.com")
+	if err != nil {
+		return nil, err
 	}
 
 	engine := &VertexEngine{
-		backends: backends,
-		prefix:   "/vertex",
-		logger:   logrus.WithField("engine", "vertex"),
+		backends: []*BackendConfig{
+			{
+				BackendURL: url,
+			}},
+		prefix: "/vertex",
+		logger: logrus.WithField("engine", "vertex"),
 	}
 	return engine, nil
 }
