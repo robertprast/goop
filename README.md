@@ -3,7 +3,7 @@
 Goop is a go based reverse proxy meant to be a single interface for multi-cloud LLM deployments and SaaS API deployments. Supported engines as of now are `OpenAI`, `AzureOpenAI`, and `Bedrock`. 
 
 ## Table of Contents
-- [Requirements](#requirements)
+- [Architecture](#architecture)
 - [Setup and Installation](#setup-and-installation)
 - [Usage](#usage)
 - [Advanced Usage](#advanced-usage)
