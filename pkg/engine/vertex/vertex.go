@@ -2,6 +2,7 @@ package vertex
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"github.com/robertprast/goop/pkg/utils"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/oauth2/google"
+	"gopkg.in/yaml.v2"
 )
 
 type BackendConfig struct {
@@ -17,29 +19,47 @@ type BackendConfig struct {
 }
 
 type VertexEngine struct {
-	name     string
 	backends []*BackendConfig
 	prefix   string
 	logger   *logrus.Entry
 }
 
-func NewVertexEngine() *VertexEngine {
-	backends := []*BackendConfig{
-		{
-			BackendURL: utils.MustParseURL("https://us-central1-aiplatform.googleapis.com"),
-		},
+type vertexConfig struct {
+	BaseUrl string `yaml:"api_endpoint"`
+	APIKey  string `yaml:"api_key"`
+}
+
+func NewVertexEngine(configStr string) (*VertexEngine, error) {
+	var config map[string]vertexConfig
+
+	err := yaml.Unmarshal([]byte(configStr), &config)
+	if err != nil {
+		logrus.Fatalf("Error parsing Vertex config: %v", err)
 	}
+
+	var backends []*BackendConfig
+	for _, cfg := range config {
+		backends = append(backends, &BackendConfig{
+			BackendURL: utils.MustParseURL(cfg.BaseUrl),
+		})
+	}
+
+	logrus.Infof("Backends: %#v", backends)
+
+	if len(backends) == 0 {
+		return &VertexEngine{}, fmt.Errorf("no backends found in config")
+	}
+
 	engine := &VertexEngine{
-		name:     "vertex",
 		backends: backends,
 		prefix:   "/vertex",
 		logger:   logrus.WithField("engine", "vertex"),
 	}
-	return engine
+	return engine, nil
 }
 
 func (e *VertexEngine) Name() string {
-	return e.name
+	return "vertex"
 }
 
 func (e *VertexEngine) IsAllowedPath(path string) bool {
@@ -53,11 +73,12 @@ func (e *VertexEngine) IsAllowedPath(path string) bool {
 
 func (e *VertexEngine) ModifyRequest(r *http.Request) {
 	backend := e.backends[0] // Use the first backend TODO: add global regions support
+	logrus.Infof("%#v", backend)
 
 	r.URL.Path = strings.TrimPrefix(r.URL.Path, e.prefix)
 	r.Host = backend.BackendURL.Host
-	r.URL.Scheme = backend.BackendURL.Scheme
 	r.URL.Host = backend.BackendURL.Host
+	r.URL.Scheme = backend.BackendURL.Scheme
 
 	token, err := getAccessToken()
 	if err != nil {

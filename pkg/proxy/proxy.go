@@ -11,14 +11,15 @@ import (
 	"github.com/robertprast/goop/pkg/engine/bedrock"
 	"github.com/robertprast/goop/pkg/engine/openai"
 	"github.com/robertprast/goop/pkg/engine/vertex"
+	"github.com/robertprast/goop/pkg/utils"
 	"github.com/sirupsen/logrus"
 )
 
 type middleware func(http.Handler) http.Handler
 
-func NewProxyHandler() http.Handler {
+func NewProxyHandler(config utils.Config) http.Handler {
 	var handler http.Handler = http.HandlerFunc(reverseProxy)
-	handler = chainMiddlewares(handler, auditMiddleware, engineMiddleware, logMiddleware)
+	handler = chainMiddlewares(handler, auditMiddleware, engineMiddleware(config), logMiddleware)
 	return handler
 }
 
@@ -50,34 +51,41 @@ func auditMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-func engineMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		engines := map[string]func() engine.Engine{
-			"/openai":  func() engine.Engine { return openai.NewOpenAIEngine() },
-			"/bedrock": func() engine.Engine { return bedrock.NewBedrockEngine() },
-			"/azure":   func() engine.Engine { return azure.NewAzureOpenAIEngine() },
-			"/vertex":  func() engine.Engine { return vertex.NewVertexEngine() },
-		}
+func engineMiddleware(config utils.Config) middleware {
+	return func(next http.Handler) http.Handler {
 
-		var eng engine.Engine
-		var found bool
-		for prefix, constructor := range engines {
-			if strings.HasPrefix(r.URL.Path, prefix) {
-				logrus.Infof("Choosing engine: %s", prefix)
-				eng = constructor()
-				found = true
-				break
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			firstPathSegment := strings.Split(r.URL.Path, "/")[1]
+			logrus.Infof("First path segment: %s", firstPathSegment)
+
+			var eng engine.Engine
+			var err error
+			switch firstPathSegment {
+			case "openai":
+				eng, err = openai.NewOpenAIEngineWithConfig(config.Engines["openai"])
+			case "azure":
+				eng, err = azure.NewAzureOpenAIEngineWithConfig(config.Engines["azure"])
+			case "bedrock":
+				eng, err = bedrock.NewBedrockEngine(config.Engines["bedrock"])
+			case "vertex":
+				eng, err = vertex.NewVertexEngine(config.Engines["vertex"])
 			}
-		}
 
-		if !found || !eng.IsAllowedPath(strings.TrimPrefix(r.URL.Path, eng.Name())) {
-			http.Error(w, "Forbidden", http.StatusForbidden)
-			return
-		}
+			if err != nil {
+				logrus.Errorf("Error selecting engine: %v", err)
+				http.Error(w, "Error selecting engine", http.StatusNotFound)
+				return
+			}
 
-		ctx := engine.ContextWithEngine(r.Context(), eng)
-		next.ServeHTTP(w, r.WithContext(ctx))
-	})
+			if !eng.IsAllowedPath(strings.TrimPrefix(r.URL.Path, eng.Name())) {
+				http.Error(w, "Forbidden", http.StatusForbidden)
+				return
+			}
+
+			ctx := engine.ContextWithEngine(r.Context(), eng)
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
 }
 
 func reverseProxy(w http.ResponseWriter, r *http.Request) {

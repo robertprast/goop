@@ -1,6 +1,7 @@
 package openai
 
 import (
+	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
@@ -8,44 +9,55 @@ import (
 	"github.com/robertprast/goop/pkg/engine"
 	"github.com/robertprast/goop/pkg/utils"
 	"github.com/sirupsen/logrus"
+	"gopkg.in/yaml.v2"
 )
 
 type BackendConfig struct {
+	BaseUrl    string `yaml:"base_url"`
+	APIKey     string `yaml:"api_key"`
+	APIVersion string `yaml:"api_version"`
 	BackendURL *url.URL
-	APIKey     string
 }
 
 type OpenAIEngine struct {
-	name      string
 	backends  []*BackendConfig
 	whitelist []string
 	prefix    string
 	logger    *logrus.Entry
 }
 
-func NewOpenAIEngine() *OpenAIEngine {
-	backends := []*BackendConfig{
-		// {
-		// 	BackendURL:  utils.MustParseURL("https://api.openai.com/v1"),
-		// 	APIKey:      os.Getenv("OPENAI_API_KEY"),
-		// },
-		{
-			BackendURL: utils.MustParseURL("http://localhost:1234/v1"),
-			APIKey:     "test",
-		},
+func NewOpenAIEngineWithConfig(configStr string) (*OpenAIEngine, error) {
+	var config map[string]BackendConfig
+
+	err := yaml.Unmarshal([]byte(configStr), &config)
+	if err != nil {
+		logrus.Fatalf("Error parsing Azure config: %v", err)
 	}
+
+	var backends []*BackendConfig
+	for _, cfg := range config {
+		backends = append(backends, &BackendConfig{
+			BackendURL: utils.MustParseURL(cfg.BaseUrl),
+			APIKey:     cfg.APIKey,
+			APIVersion: cfg.APIVersion,
+		})
+	}
+
+	if len(backends) == 0 {
+		return nil, fmt.Errorf("no backends found in config")
+	}
+
 	engine := &OpenAIEngine{
-		name:      "openai",
 		backends:  backends,
 		whitelist: []string{"/v1/chat/completions", "/v1/completions"},
 		prefix:    "/openai",
 		logger:    logrus.WithField("engine", "openai"),
 	}
-	return engine
+	return engine, nil
 }
 
 func (e *OpenAIEngine) Name() string {
-	return e.name
+	return "openai"
 }
 
 func (e *OpenAIEngine) IsAllowedPath(path string) bool {

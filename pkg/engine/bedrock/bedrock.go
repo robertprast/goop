@@ -13,14 +13,14 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
-	"github.com/aws/aws-sdk-go-v2/config"
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/robertprast/goop/pkg/engine"
 	"github.com/robertprast/goop/pkg/utils"
 	"github.com/sirupsen/logrus"
+	"gopkg.in/yaml.v2"
 )
 
 type BedrockEngine struct {
-	name      string
 	backend   *url.URL
 	whitelist []string
 	prefix    string
@@ -28,10 +28,27 @@ type BedrockEngine struct {
 	awsConfig aws.Config
 }
 
-func NewBedrockEngine() *BedrockEngine {
-	cfg, err := config.LoadDefaultConfig(context.Background())
+type bedrockConfig struct {
+	Enabled bool `yaml:"enabled"`
+}
+
+func NewBedrockEngine(configStr string) (*BedrockEngine, error) {
+	var goopConfig bedrockConfig
+
+	err := yaml.Unmarshal([]byte(configStr), &goopConfig)
 	if err != nil {
-		logrus.Fatalf("Unable to load AWS SDK config: %v", err)
+		logrus.Fatalf("Error parsing Azure config: %v", err)
+	}
+
+	if !goopConfig.Enabled {
+		logrus.Info("Bedrock engine is disabled")
+		return &BedrockEngine{}, err
+	}
+
+	cfg, err := awsconfig.LoadDefaultConfig(context.Background())
+	if err != nil {
+		logrus.Errorf("Unable to load AWS SDK config: %v", err)
+		return &BedrockEngine{}, err
 	}
 
 	region := cfg.Region
@@ -41,18 +58,17 @@ func NewBedrockEngine() *BedrockEngine {
 	endpoint := "https://bedrock-runtime." + region + ".amazonaws.com"
 
 	engine := &BedrockEngine{
-		name:      "bedrock",
 		backend:   utils.MustParseURL(endpoint),
 		whitelist: []string{"/model/", "/invoke", "/converse", "/converse-stream"},
 		prefix:    "/bedrock",
 		signer:    v4.NewSigner(),
 		awsConfig: cfg,
 	}
-	return engine
+	return engine, nil
 }
 
 func (e *BedrockEngine) Name() string {
-	return e.name
+	return "bedrock"
 }
 
 func (e *BedrockEngine) IsAllowedPath(path string) bool {

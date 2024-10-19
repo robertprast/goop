@@ -1,6 +1,7 @@
 package azure
 
 import (
+	"fmt"
 	"net/http"
 	"net/url"
 	"sync/atomic"
@@ -26,7 +27,7 @@ func (e *AzureOpenAIEngine) startHealthCheck() {
 	}()
 }
 
-func (e *AzureOpenAIEngine) selectLeastLoadedBackend() *BackendConfig {
+func (e *AzureOpenAIEngine) selectLeastLoadedBackend() (*BackendConfig, error) {
 	var selected *BackendConfig
 	minConnections := int64(^uint64(0) >> 1) // Initialize with max possible value
 
@@ -39,9 +40,9 @@ func (e *AzureOpenAIEngine) selectLeastLoadedBackend() *BackendConfig {
 
 	if selected == nil {
 		e.logger.Error("No active backends found")
-		return e.backends[0] // fallback to the first backend
+		return &BackendConfig{}, fmt.Errorf("no active backends found")
 	}
-	return selected
+	return selected, nil
 }
 
 // https://learn.microsoft.com/en-us/azure/api-management/front-door-api-management?source=post_page-----4dba93c6467d--------------------------------#update-default-origin-group

@@ -1,6 +1,7 @@
 package azure
 
 import (
+	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
@@ -9,6 +10,7 @@ import (
 	"github.com/robertprast/goop/pkg/engine"
 	"github.com/robertprast/goop/pkg/utils"
 	"github.com/sirupsen/logrus"
+	"gopkg.in/yaml.v2"
 )
 
 const (
@@ -16,48 +18,62 @@ const (
 )
 
 type BackendConfig struct {
+	BaseUrl     string `yaml:"base_url"`
+	APIKey      string `yaml:"api_key"`
+	APIVersion  string `yaml:"api_version"`
 	BackendURL  *url.URL
-	APIKey      string
-	APIVersion  string
 	IsActive    bool
 	Connections int64
 }
 
 type AzureOpenAIEngine struct {
-	name      string
 	backends  []*BackendConfig
 	whitelist map[string]struct{}
 	prefix    string
 	logger    *logrus.Entry
 }
 
-func NewAzureOpenAIEngine() *AzureOpenAIEngine {
-	backends := []*BackendConfig{
-		{
-			BackendURL:  utils.MustParseURL("http://localhost:1234"),
-			APIKey:      "1234",
-			APIVersion:  "2024-04-01-preview",
+func NewAzureOpenAIEngineWithConfig(configStr string) (*AzureOpenAIEngine, error) {
+	var config map[string]BackendConfig
+
+	err := yaml.Unmarshal([]byte(configStr), &config)
+	if err != nil {
+		logrus.Fatalf("Error parsing Azure config: %v", err)
+	}
+
+	var backends []*BackendConfig
+	for _, cfg := range config {
+		backends = append(backends, &BackendConfig{
+			BackendURL:  utils.MustParseURL(cfg.BaseUrl),
+			APIKey:      cfg.APIKey,
+			APIVersion:  cfg.APIVersion,
 			IsActive:    true,
 			Connections: 0,
-		},
+		})
 	}
+
+	if len(backends) == 0 {
+		return &AzureOpenAIEngine{}, fmt.Errorf("no backends found in config")
+	}
+
+	logrus.Infof("Backends: %v", backends)
+
 	whitelist := map[string]struct{}{
 		"chat/completions": {},
 		"completions":      {},
 	}
 	engine := &AzureOpenAIEngine{
-		name:      "azure",
 		backends:  backends,
 		whitelist: whitelist,
 		prefix:    "/azure",
 		logger:    logrus.WithField("engine", "azure"),
 	}
 	engine.startHealthCheck()
-	return engine
+	return engine, nil
 }
 
 func (e *AzureOpenAIEngine) Name() string {
-	return e.name
+	return "azure"
 }
 
 func (e *AzureOpenAIEngine) IsAllowedPath(path string) bool {
@@ -73,8 +89,8 @@ func (e *AzureOpenAIEngine) IsAllowedPath(path string) bool {
 }
 
 func (e *AzureOpenAIEngine) ModifyRequest(r *http.Request) {
-	backend := e.selectLeastLoadedBackend()
-	if backend == nil {
+	backend, err := e.selectLeastLoadedBackend()
+	if err != nil {
 		e.logger.Error("No active backends found")
 		return
 	}

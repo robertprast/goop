@@ -8,6 +8,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/sirupsen/logrus v1.9.3
 	golang.org/x/oauth2 v0.23.0
+	gopkg.in/yaml.v2 v2.4.0
 )
 
 require (
