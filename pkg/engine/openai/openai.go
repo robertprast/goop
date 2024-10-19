@@ -3,6 +3,7 @@ package openai
 import (
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"sync/atomic"
 
@@ -28,11 +29,17 @@ type OpenAIEngine struct {
 func NewOpenAIEngine() *OpenAIEngine {
 	backends := []*BackendConfig{
 		{
-			BackendURL:  mustParseURL("https://api.openai.com"),
-			APIKey:      "YOUR_API_KEY_1",
+			BackendURL:  mustParseURL("https://api.openai.com/v1"),
+			APIKey:      os.Getenv("OPENAI_API_KEY"),
 			IsActive:    true,
 			Connections: 0,
 		},
+		// {
+		// 	BackendURL:  mustParseURL("http://localhost:1234/v1"),
+		// 	APIKey:      "test",
+		// 	IsActive:    true,
+		// 	Connections: 0,
+		// },
 	}
 	engine := &OpenAIEngine{
 		name:      "openai",

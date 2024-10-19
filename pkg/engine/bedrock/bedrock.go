@@ -103,9 +103,6 @@ func (e *BedrockEngine) ModifyRequest(r *http.Request) {
 	r.URL.Host = backend.BackendURL.Host
 
 	r.Header.Del("Authorization")
-	r.Header.Del("X-Amz-Content-Sha256")
-	r.Header.Del("X-Amz-Security-Token")
-
 	e.signRequest(r)
 
 	logrus.Infof("Modified request for backend: %s", backend.BackendURL)
@@ -136,7 +133,7 @@ func (e *BedrockEngine) signRequest(req *http.Request) {
 	}
 
 	// Update the time parsing to match AWS SigV4 format
-	signingTime, err := time.Parse("20060102T150405Z", req.Header.Get("X-Amz-Date"))
+	signingTime, err := time.Parse("20060102T150405Z", time.Now().UTC().Format("20060102T150405Z"))
 	if err != nil {
 		logrus.Errorf("Failed to parse signing time: %v", err)
 		return
