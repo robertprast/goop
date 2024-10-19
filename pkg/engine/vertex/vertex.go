@@ -5,17 +5,15 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"sync/atomic"
 
 	"github.com/robertprast/goop/pkg/engine"
+	"github.com/robertprast/goop/pkg/utils"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/oauth2/google"
 )
 
 type BackendConfig struct {
-	BackendURL  *url.URL
-	IsActive    bool
-	Connections int64
+	BackendURL *url.URL
 }
 
 type VertexEngine struct {
@@ -28,9 +26,7 @@ type VertexEngine struct {
 func NewVertexEngine() *VertexEngine {
 	backends := []*BackendConfig{
 		{
-			BackendURL:  mustParseURL("https://us-central1-aiplatform.googleapis.com"),
-			IsActive:    true,
-			Connections: 0,
+			BackendURL: utils.MustParseURL("https://us-central1-aiplatform.googleapis.com"),
 		},
 	}
 	engine := &VertexEngine{
@@ -46,7 +42,7 @@ func (e *VertexEngine) Name() string {
 	return e.name
 }
 
-func (e *VertexEngine) IsValidPath(path string) bool {
+func (e *VertexEngine) IsAllowedPath(path string) bool {
 	trimmedPath := strings.TrimPrefix(path, e.prefix)
 	if strings.HasPrefix(trimmedPath, "/v1/projects/") || strings.HasPrefix(trimmedPath, "/v1beta1/projects/") {
 		return true
@@ -56,10 +52,7 @@ func (e *VertexEngine) IsValidPath(path string) bool {
 }
 
 func (e *VertexEngine) ModifyRequest(r *http.Request) {
-	backend := e.backends[0] // Use the first active backend
-
-	atomic.AddInt64(&backend.Connections, 1)
-	defer atomic.AddInt64(&backend.Connections, -1)
+	backend := e.backends[0] // Use the first backend TODO: add global regions support
 
 	r.URL.Path = strings.TrimPrefix(r.URL.Path, e.prefix)
 	r.Host = backend.BackendURL.Host
@@ -80,14 +73,6 @@ func (e *VertexEngine) HandleResponseAfterFinish(resp *http.Response, body []byt
 	id, _ := resp.Request.Context().Value(engine.RequestId).(string)
 	e.logger.Infof("Response [HTTP %d] Correlation ID: %s Body Length: %d\n",
 		resp.StatusCode, id, len(body))
-}
-
-func mustParseURL(rawURL string) *url.URL {
-	parsedURL, err := url.Parse(rawURL)
-	if err != nil {
-		panic("Invalid URL: " + rawURL)
-	}
-	return parsedURL
 }
 
 func getAccessToken() (string, error) {

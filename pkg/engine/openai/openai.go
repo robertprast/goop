@@ -3,19 +3,16 @@ package openai
 import (
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
-	"sync/atomic"
 
 	"github.com/robertprast/goop/pkg/engine"
+	"github.com/robertprast/goop/pkg/utils"
 	"github.com/sirupsen/logrus"
 )
 
 type BackendConfig struct {
-	BackendURL  *url.URL
-	APIKey      string
-	IsActive    bool
-	Connections int64
+	BackendURL *url.URL
+	APIKey     string
 }
 
 type OpenAIEngine struct {
@@ -28,18 +25,14 @@ type OpenAIEngine struct {
 
 func NewOpenAIEngine() *OpenAIEngine {
 	backends := []*BackendConfig{
-		{
-			BackendURL:  mustParseURL("https://api.openai.com/v1"),
-			APIKey:      os.Getenv("OPENAI_API_KEY"),
-			IsActive:    true,
-			Connections: 0,
-		},
 		// {
-		// 	BackendURL:  mustParseURL("http://localhost:1234/v1"),
-		// 	APIKey:      "test",
-		// 	IsActive:    true,
-		// 	Connections: 0,
+		// 	BackendURL:  utils.MustParseURL("https://api.openai.com/v1"),
+		// 	APIKey:      os.Getenv("OPENAI_API_KEY"),
 		// },
+		{
+			BackendURL: utils.MustParseURL("http://localhost:1234/v1"),
+			APIKey:     "test",
+		},
 	}
 	engine := &OpenAIEngine{
 		name:      "openai",
@@ -55,7 +48,7 @@ func (e *OpenAIEngine) Name() string {
 	return e.name
 }
 
-func (e *OpenAIEngine) IsValidPath(path string) bool {
+func (e *OpenAIEngine) IsAllowedPath(path string) bool {
 	for _, allowedPath := range e.whitelist {
 		if strings.HasPrefix(path, e.prefix+allowedPath) {
 			return true
@@ -72,9 +65,6 @@ func (e *OpenAIEngine) ModifyRequest(r *http.Request) {
 		return
 	}
 
-	atomic.AddInt64(&backend.Connections, 1)
-	defer atomic.AddInt64(&backend.Connections, -1)
-
 	r.URL.Path = strings.TrimPrefix(r.URL.Path, e.prefix)
 	r.Host = backend.BackendURL.Host
 	r.URL.Scheme = backend.BackendURL.Scheme
@@ -82,14 +72,6 @@ func (e *OpenAIEngine) ModifyRequest(r *http.Request) {
 
 	r.Header.Set("Authorization", "Bearer "+backend.APIKey)
 	e.logger.Infof("Modified request for backend: %s", backend.BackendURL)
-}
-
-func mustParseURL(rawURL string) *url.URL {
-	parsedURL, err := url.Parse(rawURL)
-	if err != nil {
-		panic("Invalid URL: " + rawURL)
-	}
-	return parsedURL
 }
 
 func (e *OpenAIEngine) HandleResponseAfterFinish(resp *http.Response, body []byte) {

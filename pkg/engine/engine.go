@@ -9,7 +9,7 @@ import (
 
 type Engine interface {
 	Name() string
-	IsValidPath(path string) bool
+	IsAllowedPath(path string) bool
 	ModifyRequest(r *http.Request)
 	HandleResponseAfterFinish(resp *http.Response, body []byte)
 }

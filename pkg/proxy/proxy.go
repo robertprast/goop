@@ -70,7 +70,7 @@ func engineMiddleware(next http.Handler) http.Handler {
 			}
 		}
 
-		if !found || !eng.IsValidPath(strings.TrimPrefix(r.URL.Path, eng.Name())) {
+		if !found || !eng.IsAllowedPath(strings.TrimPrefix(r.URL.Path, eng.Name())) {
 			http.Error(w, "Forbidden", http.StatusForbidden)
 			return
 		}

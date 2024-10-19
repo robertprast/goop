@@ -7,6 +7,7 @@ import (
 	"sync/atomic"
 
 	"github.com/robertprast/goop/pkg/engine"
+	"github.com/robertprast/goop/pkg/utils"
 	"github.com/sirupsen/logrus"
 )
 
@@ -33,7 +34,7 @@ type AzureOpenAIEngine struct {
 func NewAzureOpenAIEngine() *AzureOpenAIEngine {
 	backends := []*BackendConfig{
 		{
-			BackendURL:  mustParseURL("http://localhost:1234"),
+			BackendURL:  utils.MustParseURL("http://localhost:1234"),
 			APIKey:      "1234",
 			APIVersion:  "2024-04-01-preview",
 			IsActive:    true,
@@ -59,7 +60,7 @@ func (e *AzureOpenAIEngine) Name() string {
 	return e.name
 }
 
-func (e *AzureOpenAIEngine) IsValidPath(path string) bool {
+func (e *AzureOpenAIEngine) IsAllowedPath(path string) bool {
 	trimmedPath := strings.TrimPrefix(path, e.prefix)
 	deploymentRoute := extractDeploymentRoute(trimmedPath)
 	e.logger.Infof("Deployment Route: %s", deploymentRoute)
@@ -96,14 +97,6 @@ func (e *AzureOpenAIEngine) ModifyRequest(r *http.Request) {
 	r.URL.RawQuery = query.Encode()
 
 	e.logger.Infof("Modified request for backend: %s", backend.BackendURL)
-}
-
-func mustParseURL(rawURL string) *url.URL {
-	parsedURL, err := url.Parse(rawURL)
-	if err != nil {
-		panic("Invalid URL: " + rawURL)
-	}
-	return parsedURL
 }
 
 func (e *AzureOpenAIEngine) HandleResponseAfterFinish(resp *http.Response, body []byte) {

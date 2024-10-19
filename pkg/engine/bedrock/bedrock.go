@@ -9,28 +9,23 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
 	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/robertprast/goop/pkg/engine"
+	"github.com/robertprast/goop/pkg/utils"
 	"github.com/sirupsen/logrus"
 )
 
 type BedrockEngine struct {
 	name      string
-	backends  []*BackendConfig
+	backend   *url.URL
 	whitelist []string
 	prefix    string
 	signer    *v4.Signer
 	awsConfig aws.Config
-}
-
-type BackendConfig struct {
-	BackendURL  *url.URL
-	IsActive    bool
-	Connections int64
 }
 
 func NewBedrockEngine() *BedrockEngine {
@@ -45,26 +40,9 @@ func NewBedrockEngine() *BedrockEngine {
 	}
 	endpoint := "https://bedrock-runtime." + region + ".amazonaws.com"
 
-	backendURL, err := url.Parse(endpoint)
-	if err != nil {
-		logrus.Fatalf("Invalid Bedrock endpoint URL: %v", err)
-	}
-
-	backends := []*BackendConfig{
-		{
-			BackendURL:  backendURL,
-			IsActive:    true,
-			Connections: 0,
-		},
-	}
-
-	if len(backends) == 0 {
-		logrus.Fatalf("No backends available")
-	}
-
 	engine := &BedrockEngine{
 		name:      "bedrock",
-		backends:  backends,
+		backend:   utils.MustParseURL(endpoint),
 		whitelist: []string{"/model/", "/invoke", "/converse", "/converse-stream"},
 		prefix:    "/bedrock",
 		signer:    v4.NewSigner(),
@@ -77,7 +55,7 @@ func (e *BedrockEngine) Name() string {
 	return e.name
 }
 
-func (e *BedrockEngine) IsValidPath(path string) bool {
+func (e *BedrockEngine) IsAllowedPath(path string) bool {
 	for _, allowedPath := range e.whitelist {
 		if strings.HasPrefix(path, e.prefix+allowedPath) {
 			return true
@@ -88,24 +66,16 @@ func (e *BedrockEngine) IsValidPath(path string) bool {
 }
 
 func (e *BedrockEngine) ModifyRequest(r *http.Request) {
-	backend := e.backends[0]
-	if backend == nil {
-		logrus.Warn("No backend available")
-		return
-	}
-
-	atomic.AddInt64(&backend.Connections, 1)
-	defer atomic.AddInt64(&backend.Connections, -1)
 
 	r.URL.Path = strings.TrimPrefix(r.URL.Path, e.prefix)
-	r.Host = backend.BackendURL.Host
-	r.URL.Scheme = backend.BackendURL.Scheme
-	r.URL.Host = backend.BackendURL.Host
-
+	r.Host = e.backend.Host
+	r.URL.Scheme = e.backend.Scheme
+	r.URL.Host = e.backend.Host
 	r.Header.Del("Authorization")
+
 	e.signRequest(r)
 
-	logrus.Infof("Modified request for backend: %s", backend.BackendURL)
+	logrus.Infof("Modified request for backend: %s", e.backend)
 }
 
 // Sign the request using AWS SDK v2
@@ -146,5 +116,7 @@ func (e *BedrockEngine) signRequest(req *http.Request) {
 }
 
 func (e *BedrockEngine) HandleResponseAfterFinish(resp *http.Response, body []byte) {
-	// no-op
+	id, _ := resp.Request.Context().Value(engine.RequestId).(string)
+	logrus.Infof("Response [HTTP %d] Correlation ID: %s Body Length: %d\n",
+		resp.StatusCode, id, len(string(body)))
 }
