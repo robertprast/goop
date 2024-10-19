@@ -1,0 +1,35 @@
+on:
+  release:
+    types: [created]
+
+
+
+jobs:
+  releases-matrix:
+    name: release binary
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        goos: [linux, windows, darwin]
+        goarch: ["386", amd64, arm64]
+        exclude:
+          - goarch: "386"
+            goos: darwin
+          - goarch: arm64
+            goos: windows
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - uses: actions/checkout@v3
+      - uses: wangyoucao577/go-release-action@v1
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          goos: ${{ matrix.goos }}
+          goarch: ${{ matrix.goarch }}
+          ldflags: '-s -w'
+          binary_name: "goop"
+          extra_files: LICENSE README.md
+          md5sum: FALSE
+          sha256sum: TRUE
+  
