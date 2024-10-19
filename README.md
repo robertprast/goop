@@ -79,6 +79,23 @@ client = boto3.client("bedrock-runtime", endpoint_url="http://localhost:8080/bed
 client.meta.events.register("before-send.bedrock-runtime.*", _replace_headers)
 ```
 
+### Vertex AI (Google)
+```python
+import vertexai
+from vertexai.preview.generative_models import GenerativeModel
+
+PROJECT_ID = "<YOUR_VERTEX_AI_PROJECT_ID>"
+vertexai.init(
+    project=PROJECT_ID,
+    api_endpoint="http://localhost:8080/vertex",
+)
+
+generative_multimodal_model = GenerativeModel("gemini-1.5-flash-002")
+response = generative_multimodal_model.generate_content(["Say hi"])
+
+print(response)
+```
+
 ## Advanced Usage
 
 Chaining multiple native LLM SDK clients that flow through a single agentic framework and proxy all requests to a single reverse proxy service
