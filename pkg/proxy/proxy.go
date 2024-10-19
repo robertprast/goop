@@ -7,7 +7,7 @@ import (
 
 	"github.com/robertprast/goop/pkg/audit"
 	"github.com/robertprast/goop/pkg/engine"
-	azure "github.com/robertprast/goop/pkg/engine/azure_openai"
+	"github.com/robertprast/goop/pkg/engine/azure"
 	"github.com/robertprast/goop/pkg/engine/bedrock"
 	"github.com/robertprast/goop/pkg/engine/openai"
 	"github.com/robertprast/goop/pkg/engine/vertex"
