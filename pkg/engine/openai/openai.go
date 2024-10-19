@@ -42,7 +42,7 @@ func NewOpenAIEngineWithConfig(configStr string) (*OpenAIEngine, error) {
 
 	engine := &OpenAIEngine{
 		backend:   &backend,
-		whitelist: []string{"/v1/chat/completions", "/v1/completions"},
+		whitelist: []string{"/v1/chat/completions", "/v1/completions", "/v1/models"},
 		prefix:    "/openai",
 		logger:    logrus.WithField("engine", "openai"),
 	}
