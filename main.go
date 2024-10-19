@@ -19,5 +19,5 @@ func main() {
 	proxyHandler := proxy.NewProxyHandler(config)
 	http.Handle("/", proxyHandler)
 	logrus.Info("Starting proxy server on :8080")
-	logrus.Fatal(http.ListenAndServe(":8080", nil))
+	logrus.Fatal(http.ListenAndServe("0.0.0.0:8080", nil))
 }
