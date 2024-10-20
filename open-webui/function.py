@@ -169,19 +169,22 @@ class Pipe:
                 "before-send.bedrock-runtime.*", _replace_headers
             )
             conversation = []
+            system = []
             for message in body.get("messages", []):
-                conversation.append(
-                    {
-                        "role": message["role"],
-                        "content": [{"text": message["content"]}],
-                    }
-                )
+                if message["role"] != "system":
+                    conversation.append(
+                        {
+                            "role": message["role"],
+                            "content": [{"text": message["content"]}],
+                        }
+                    )
+                else:
+                    system.append({"text": message["content"]})
             if body.get("stream", False):
 
                 def stream_generator():
                     streaming_response = self.bedrock_client.converse_stream(
-                        modelId=model_id,
-                        messages=conversation,
+                        modelId=model_id, messages=conversation, system=system
                     )
 
                     for chunk in streaming_response["stream"]:

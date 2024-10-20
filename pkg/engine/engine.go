@@ -14,6 +14,13 @@ type Engine interface {
 	HandleResponseAfterFinish(resp *http.Response, body []byte)
 }
 
+type OpenAIProxyEngine interface {
+	Engine
+	TransformChatCompletionRequest(reqBody map[string]interface{}) ([]byte, error)
+	HandleChatCompletionRequest(ctx context.Context, transformedBody []byte, stream bool) (*http.Response, error)
+	SendChatCompletionResponse(bedrockResp *http.Response, w http.ResponseWriter, stream bool) error
+}
+
 type contextKey string
 type requestIdKey string
 

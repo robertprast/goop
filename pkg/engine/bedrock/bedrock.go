@@ -3,28 +3,29 @@ package bedrock
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
+	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"strings"
-	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
-	"github.com/robertprast/goop/pkg/engine"
+	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
 	"github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v2"
+	// imported as openai
 )
 
 type BedrockEngine struct {
 	backend   *url.URL
 	whitelist []string
 	prefix    string
-	signer    *v4.Signer
 	awsConfig aws.Config
+	Client    *bedrockruntime.Client
+	signer    *v4.Signer
 }
 
 type bedrockConfig struct {
@@ -61,12 +62,15 @@ func NewBedrockEngine(configStr string) (*BedrockEngine, error) {
 		return nil, err
 	}
 
+	client := bedrockruntime.NewFromConfig(cfg)
+
 	engine := &BedrockEngine{
 		backend:   url,
-		whitelist: []string{"/model/", "/invoke", "/converse", "/converse-stream"},
+		whitelist: []string{"/model/", "/invoke", "/converse", "/converse-stream", "/v1/chat/completions"},
 		prefix:    "/bedrock",
-		signer:    v4.NewSigner(),
 		awsConfig: cfg,
+		Client:    client,
+		signer:    v4.NewSigner(),
 	}
 	return engine, nil
 }
@@ -76,8 +80,11 @@ func (e *BedrockEngine) Name() string {
 }
 
 func (e *BedrockEngine) IsAllowedPath(path string) bool {
+	logrus.Infof("Checking if path %s is allowed", path)
 	for _, allowedPath := range e.whitelist {
 		if strings.HasPrefix(path, e.prefix+allowedPath) {
+			return true
+		} else if strings.HasPrefix(path, "/openai-proxy/") {
 			return true
 		}
 	}
@@ -86,7 +93,6 @@ func (e *BedrockEngine) IsAllowedPath(path string) bool {
 }
 
 func (e *BedrockEngine) ModifyRequest(r *http.Request) {
-
 	r.URL.Path = strings.TrimPrefix(r.URL.Path, e.prefix)
 	r.Host = e.backend.Host
 	r.URL.Scheme = e.backend.Scheme
@@ -94,49 +100,58 @@ func (e *BedrockEngine) ModifyRequest(r *http.Request) {
 	r.Header.Del("Authorization")
 
 	e.signRequest(r)
-
 	logrus.Infof("Modified request for backend: %s", e.backend)
 }
 
-// Sign the request using AWS SDK v2
-func (e *BedrockEngine) signRequest(req *http.Request) {
-	creds, err := e.awsConfig.Credentials.Retrieve(context.Background())
-	if err != nil {
-		logrus.Errorf("Failed to retrieve AWS credentials: %v", err)
-		return
+func (e *BedrockEngine) TransformChatCompletionRequest(reqBody map[string]interface{}) ([]byte, error) {
+	bedrockRequest := BedrockRequest{
+		Messages:        transformMessages(reqBody["messages"].([]interface{})),
+		InferenceConfig: buildInferenceConfig(reqBody),
+		System: []SystemMessage{
+			{Text: "You are an assistant."},
+		},
 	}
 
-	var body []byte
-	var payloadHash string
-	if req.Body != nil {
-		body, err = io.ReadAll(req.Body)
-		if err != nil {
-			logrus.Errorf("Failed to read request body: %v", err)
-			return
-		}
-		req.Body = io.NopCloser(bytes.NewReader(body))
-		hash := sha256.Sum256(body)
-		payloadHash = hex.EncodeToString(hash[:])
-	} else {
-		// Use SHA-256 hash of an empty string if there is no body
-		payloadHash = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+	toolConfig := buildToolConfig(reqBody)
+	if toolConfig != nil && len(toolConfig.Tools) > 0 {
+		bedrockRequest.ToolConfig = toolConfig
 	}
 
-	// Update the time parsing to match AWS SigV4 format
-	signingTime, err := time.Parse("20060102T150405Z", time.Now().UTC().Format("20060102T150405Z"))
-	if err != nil {
-		logrus.Errorf("Failed to parse signing time: %v", err)
-		return
-	}
-
-	err = e.signer.SignHTTP(context.Background(), creds, req, payloadHash, "bedrock", e.awsConfig.Region, signingTime)
-	if err != nil {
-		logrus.Errorf("Failed to sign request: %v", err)
-	}
+	return json.Marshal(bedrockRequest)
 }
 
-func (e *BedrockEngine) HandleResponseAfterFinish(resp *http.Response, body []byte) {
-	id, _ := resp.Request.Context().Value(engine.RequestId).(string)
-	logrus.Infof("Response [HTTP %d] Correlation ID: %s Body Length: %d\n",
-		resp.StatusCode, id, len(string(body)))
+func (e *BedrockEngine) HandleChatCompletionRequest(ctx context.Context, transformedBody []byte, stream bool) (*http.Response, error) {
+
+	endpoint := fmt.Sprintf("%s/model/%s/%s", e.backend.String(), "us.anthropic.claude-3-haiku-20240307-v1:0", getEndpointSuffix(stream))
+
+	logrus.Infof("Request body: %s", transformedBody)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(transformedBody))
+	if err != nil {
+		return nil, fmt.Errorf("error creating request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	e.signRequest(req)
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("error making HTTP request: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		logrus.Errorf("Bedrock API error: Status %d, Body: %s", resp.StatusCode, string(body))
+		resp.Body = io.NopCloser(bytes.NewBuffer(body))
+	}
+
+	return resp, nil
+}
+
+func (e *BedrockEngine) SendChatCompletionResponse(bedrockResp *http.Response, w http.ResponseWriter, stream bool) error {
+	logrus.Infof("Sending request to bedrock")
+	if bedrockResp.Header.Get("Content-Type") == "application/vnd.amazon.eventstream" {
+		return e.handleStreamingResponse(bedrockResp, w)
+	}
+	return e.handleNonStreamingResponse(bedrockResp, w)
 }

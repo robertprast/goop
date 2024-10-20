@@ -4,8 +4,11 @@ go 1.22.5
 
 require (
 	github.com/aws/aws-sdk-go-v2 v1.32.2
+	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.6.6
 	github.com/aws/aws-sdk-go-v2/config v1.28.0
+	github.com/aws/aws-sdk-go-v2/service/bedrockruntime v1.19.2
 	github.com/google/uuid v1.6.0
+	github.com/openai/openai-go v0.1.0-alpha.29
 	github.com/sirupsen/logrus v1.9.3
 	golang.org/x/oauth2 v0.23.0
 	gopkg.in/yaml.v2 v2.4.0
@@ -24,5 +27,9 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.28.2 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sts v1.32.2 // indirect
 	github.com/aws/smithy-go v1.22.0 // indirect
-	golang.org/x/sys v0.0.0-20220715151400-c0bba94af5f8 // indirect
+	github.com/tidwall/gjson v1.14.4 // indirect
+	github.com/tidwall/match v1.1.1 // indirect
+	github.com/tidwall/pretty v1.2.1 // indirect
+	github.com/tidwall/sjson v1.2.5 // indirect
+	golang.org/x/sys v0.22.0 // indirect
 )

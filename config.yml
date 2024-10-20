@@ -1,5 +1,4 @@
 engines:
-
   openai:
     api_key: "${OPENAI_API_KEY}"
     base_url: "http://localhost:1234/v1"
