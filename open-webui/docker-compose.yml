@@ -27,8 +27,8 @@ services:
     environment:
       - 'OLLAMA_BASE_URL=http://ollama:11434'
       - 'WEBUI_SECRET_KEY='
-      # - 'OPENAI_API_BASE_URL=http://pipelines:9099'
-      # - 'OPENAI_API_KEY=0p3n-w3bu!'
+      - 'OPENAI_API_BASE_URL=http://host.docker.internal:8080/openai-proxy/v1'
+      - 'OPENAI_API_KEY=0p3n-w3bu!'
       - 'WEBUI_AUTH=false'
       - 'SCARF_NO_ANALYTICS=true'
       - 'DO_NOT_TRACK=true'

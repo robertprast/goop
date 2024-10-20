@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/robertprast/goop/pkg/engine"
 	"github.com/sirupsen/logrus"
 )
 
@@ -48,10 +47,4 @@ func (e *BedrockEngine) signRequest(req *http.Request) {
 	if err != nil {
 		logrus.Errorf("Failed to sign request: %v", err)
 	}
-}
-
-func (e *BedrockEngine) HandleResponseAfterFinish(resp *http.Response, body []byte) {
-	id, _ := resp.Request.Context().Value(engine.RequestId).(string)
-	logrus.Infof("Response [HTTP %d] Correlation ID: %s Body Length: %d\n",
-		resp.StatusCode, id, len(string(body)))
 }

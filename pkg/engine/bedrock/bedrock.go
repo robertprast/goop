@@ -14,10 +14,13 @@ import (
 	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
+	"github.com/robertprast/goop/pkg/engine"
 	"github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v2"
 	// imported as openai
 )
+
+var _ engine.OpenAIProxyEngine = (*BedrockEngine)(nil)
 
 type BedrockEngine struct {
 	backend   *url.URL
@@ -154,4 +157,10 @@ func (e *BedrockEngine) SendChatCompletionResponse(bedrockResp *http.Response, w
 		return e.handleStreamingResponse(bedrockResp, w)
 	}
 	return e.handleNonStreamingResponse(bedrockResp, w)
+}
+
+func (e *BedrockEngine) HandleResponseAfterFinish(resp *http.Response, body []byte) {
+	id, _ := resp.Request.Context().Value(engine.RequestId).(string)
+	logrus.Infof("Response [HTTP %d] Correlation ID: %s Body Length: %d\n",
+		resp.StatusCode, id, len(string(body)))
 }

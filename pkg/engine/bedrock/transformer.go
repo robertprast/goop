@@ -8,12 +8,8 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream"
-	"github.com/robertprast/goop/pkg/engine"
 	"github.com/sirupsen/logrus"
 )
-
-// Ensure BedrockEngine implements the OpenAIProxyEngine interface
-var _ engine.OpenAIProxyEngine = (*BedrockEngine)(nil)
 
 func buildToolConfig(reqBody map[string]interface{}) *ToolConfig {
 	tools, hasTools := reqBody["tools"].([]interface{})
