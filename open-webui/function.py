@@ -105,7 +105,7 @@ class Pipe:
         ]
 
     def pipe(self, body: dict, __user__: dict) -> Union[str, Iterator]:
-        model_name = body["model"].replace("openai_proxy_pipe.", "")
+        model_name = body["model"].replace("goop.", "")
         if model_name.startswith("openai/"):
             body["model"] = model_name.replace("openai/", "")
             return self._handle_openai(body)
