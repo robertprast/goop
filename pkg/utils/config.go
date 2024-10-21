@@ -2,10 +2,10 @@ package utils
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"regexp"
 
+	"github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v2"
 )
 
@@ -60,7 +60,7 @@ func substituteEnvVars(content string) string {
 		envVar := match[2 : len(match)-1] // Extract variable name
 		value := os.Getenv(envVar)
 		if value == "" {
-			log.Printf("Warning: environment variable %s is not set\n", envVar)
+			logrus.Fatalf("Warning: environment variable %s is not set\n", envVar)
 		}
 		return value
 	})
