@@ -2,13 +2,13 @@ engines:
   openai:
     api_key: "${OPENAI_API_KEY}"
     base_url: "http://localhost:1234/v1"
-    # api_key: "${OPENAI_API_KEY}"
-    # base_url: "https://api.openai.com/v1"
+  #   api_key: "${OPENAI_API_KEY}"
+  #   base_url: "https://api.openai.com/v1"
 
-  azure:
-    - api_key: "${OPENAI_API_KEY}"
-      base_url: "http://localhost:1234/v1"
-      api_version: "2024-04-01-preview"
+  # azure:
+  #   - api_key: "${OPENAI_API_KEY}"
+  #     base_url: "http://localhost:1234/v1"
+  #     api_version: "2024-04-01-preview"
 
   vertex:
     enabled: true

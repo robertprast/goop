@@ -58,10 +58,17 @@ func engineMiddleware(config utils.Config) middleware {
 			firstPathSegment := strings.Split(r.URL.Path, "/")[1]
 			logrus.Infof("First path segment: %s", firstPathSegment)
 
+			// check if config has engine
+			if _, ok := config.Engines[firstPathSegment]; !ok {
+				http.Error(w, "Engine not found", http.StatusNotFound)
+				return
+			}
+
 			var eng engine.Engine
 			var err error
 			switch firstPathSegment {
 			case "openai":
+
 				eng, err = openai.NewOpenAIEngineWithConfig(config.Engines["openai"])
 			case "azure":
 				eng, err = azure.NewAzureOpenAIEngineWithConfig(config.Engines["azure"])

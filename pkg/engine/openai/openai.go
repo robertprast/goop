@@ -34,6 +34,10 @@ func NewOpenAIEngineWithConfig(configStr string) (*OpenAIEngine, error) {
 		return nil, fmt.Errorf("error parsing OpenAI config: %w", err)
 	}
 
+	if backend.BaseUrl == "" || backend.APIKey == "" {
+		return nil, fmt.Errorf("error parsing OpenAI config: missing base_url or api_key")
+	}
+
 	url, err := url.Parse(backend.BaseUrl)
 	if err != nil {
 		return nil, err

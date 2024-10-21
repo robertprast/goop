@@ -57,7 +57,7 @@ func NewAzureOpenAIEngineWithConfig(configStr string) (*AzureOpenAIEngine, error
 	}
 
 	if len(backends) == 0 {
-		return &AzureOpenAIEngine{}, fmt.Errorf("no backends found in config")
+		return &AzureOpenAIEngine{}, fmt.Errorf("engine is disabled")
 	}
 
 	logrus.Infof("Backends: %v", backends)

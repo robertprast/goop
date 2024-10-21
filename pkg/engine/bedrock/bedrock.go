@@ -46,7 +46,7 @@ func NewBedrockEngine(configStr string) (*BedrockEngine, error) {
 
 	if !goopConfig.Enabled {
 		logrus.Info("Bedrock engine is disabled")
-		return &BedrockEngine{}, err
+		return &BedrockEngine{}, fmt.Errorf("engine is disabled")
 	}
 
 	cfg, err := awsconfig.LoadDefaultConfig(context.Background())
