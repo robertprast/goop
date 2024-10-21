@@ -23,16 +23,13 @@ func LoadConfig(filename string) (Config, error) {
 		return finalConfig, err
 	}
 
-	// Substitute environment variables before parsing
 	substitutedData := substituteEnvVars(string(data))
 
-	// Unmarshal into a generic map
 	err = yaml.Unmarshal([]byte(substitutedData), &rawConfig)
 	if err != nil {
 		return finalConfig, fmt.Errorf("error parsing YAML: %w", err)
 	}
 
-	// Convert each engine configuration into a string
 	enginesRaw, ok := rawConfig["engines"].(map[interface{}]interface{})
 	if !ok {
 		return finalConfig, fmt.Errorf("invalid format for engines")
@@ -41,7 +38,6 @@ func LoadConfig(filename string) (Config, error) {
 	finalConfig.Engines = make(map[string]string)
 
 	for engineName, engineConfig := range enginesRaw {
-		// Marshal each engine's config back to YAML string
 		engineConfigStr, err := yaml.Marshal(engineConfig)
 		if err != nil {
 			return finalConfig, fmt.Errorf("error marshaling engine config for %s: %w", engineName, err)
@@ -57,6 +53,10 @@ func LoadConfig(filename string) (Config, error) {
 func substituteEnvVars(content string) string {
 	re := regexp.MustCompile(`\$\{(\w+)\}`)
 	return re.ReplaceAllStringFunc(content, func(match string) string {
+		// check that match len is at least 4 to avoid out of bounds error
+		if len(match) < 4 {
+			return match
+		}
 		envVar := match[2 : len(match)-1] // Extract variable name
 		value := os.Getenv(envVar)
 		if value == "" {
