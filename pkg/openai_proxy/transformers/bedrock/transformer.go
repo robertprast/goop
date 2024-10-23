@@ -3,22 +3,23 @@ package bedrock
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"time"
+
+	"github.com/robertprast/goop/pkg/engine/bedrock"
 
 	"github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream"
 	openai_types "github.com/robertprast/goop/pkg/openai_proxy/types"
 	"github.com/sirupsen/logrus"
 )
 
-func buildToolConfig(reqBody openai_types.InconcomingChatCompletionRequest) *ToolConfig {
+func buildToolConfig(reqBody openai_types.InconcomingChatCompletionRequest) *bedrock.ToolConfig {
 	if len(reqBody.Tools) == 0 {
 		return nil
 	}
 
-	toolConfig := &ToolConfig{
-		Tools: make([]Tool, len(reqBody.Tools)),
+	toolConfig := &bedrock.ToolConfig{
+		Tools: make([]bedrock.Tool, len(reqBody.Tools)),
 	}
 
 	for i, tool := range reqBody.Tools {
@@ -30,11 +31,11 @@ func buildToolConfig(reqBody openai_types.InconcomingChatCompletionRequest) *Too
 			tool.Function.Description = "Default description for the function"
 		}
 
-		toolConfig.Tools[i] = Tool{
-			ToolSpec: ToolSpec{
+		toolConfig.Tools[i] = bedrock.Tool{
+			ToolSpec: bedrock.ToolSpec{
 				Name:        tool.Function.Name,
 				Description: tool.Function.Description,
-				InputSchema: InputSchema{
+				InputSchema: bedrock.InputSchema{
 					JSON: tool.Function.Parameters,
 				},
 			},
@@ -45,14 +46,14 @@ func buildToolConfig(reqBody openai_types.InconcomingChatCompletionRequest) *Too
 	case string:
 		switch choice {
 		case "auto":
-			toolConfig.ToolChoice = ToolChoice{Auto: &struct{}{}}
+			toolConfig.ToolChoice = bedrock.ToolChoice{Auto: &struct{}{}}
 		case "required":
-			toolConfig.ToolChoice = ToolChoice{Any: &struct{}{}}
+			toolConfig.ToolChoice = bedrock.ToolChoice{Any: &struct{}{}}
 		}
 	case map[string]interface{}:
 		if tool, ok := choice["function"].(map[string]interface{}); ok {
 			if name, ok := tool["name"].(string); ok {
-				toolConfig.ToolChoice = ToolChoice{Tool: &ToolName{Name: name}}
+				toolConfig.ToolChoice = bedrock.ToolChoice{Tool: &bedrock.ToolName{Name: name}}
 			}
 		}
 	}
@@ -60,13 +61,13 @@ func buildToolConfig(reqBody openai_types.InconcomingChatCompletionRequest) *Too
 }
 
 // transformMessages converts the OpenAI-style messages into Bedrock-compatible messages.
-func transformMessages(messages []openai_types.ChatMessage) []Message {
-	bedrockMessages := make([]Message, len(messages))
+func transformMessages(messages []openai_types.ChatMessage) []bedrock.Message {
+	bedrockMessages := make([]bedrock.Message, len(messages))
 	for i, message := range messages {
-		contentBlocks := []ContentBlock{}
+		contentBlocks := []bedrock.ContentBlock{}
 
 		if message.Content != nil {
-			contentBlocks = append(contentBlocks, ContentBlock{
+			contentBlocks = append(contentBlocks, bedrock.ContentBlock{
 				Type: "text",
 				Text: *message.Content,
 			})
@@ -86,7 +87,7 @@ func transformMessages(messages []openai_types.ChatMessage) []Message {
 		// 	})
 		// }
 
-		bedrockMessages[i] = Message{
+		bedrockMessages[i] = bedrock.Message{
 			Role:    message.Role,
 			Content: contentBlocks,
 		}
@@ -95,8 +96,8 @@ func transformMessages(messages []openai_types.ChatMessage) []Message {
 }
 
 // buildInferenceConfig generates a Bedrock-compatible inference configuration from the OpenAI proxy request.
-func buildInferenceConfig(reqBody openai_types.InconcomingChatCompletionRequest) InferenceConfig {
-	config := InferenceConfig{}
+func buildInferenceConfig(reqBody openai_types.InconcomingChatCompletionRequest) bedrock.InferenceConfig {
+	config := bedrock.InferenceConfig{}
 	if reqBody.MaxTokens != nil {
 		config.MaxTokens = *reqBody.MaxTokens
 	}
@@ -116,32 +117,6 @@ func buildInferenceConfig(reqBody openai_types.InconcomingChatCompletionRequest)
 	return config
 }
 
-func (e *BedrockEngine) handleStreamingResponse(bedrockResp *http.Response, w http.ResponseWriter) error {
-	logrus.Info("Sending streaming response back")
-	defer bedrockResp.Body.Close()
-
-	decoder := eventstream.NewDecoder()
-	var payloadBuf []byte
-
-	for {
-		event, err := decoder.Decode(bedrockResp.Body, payloadBuf)
-		if err == io.EOF {
-			break
-		} else if err != nil {
-			return err
-		}
-
-		logrus.Infof("Received event: %v", event)
-		logrus.Infof("Event payload: %s", string(event.Payload))
-
-		if err := processStreamingEvent(event, w); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
 func processStreamingEvent(event eventstream.Message, w http.ResponseWriter) error {
 	eventType := getEventType(event.Headers)
 	switch eventType {
@@ -158,7 +133,7 @@ func processStreamingEvent(event eventstream.Message, w http.ResponseWriter) err
 }
 
 func handleContentBlockDelta(event eventstream.Message, w http.ResponseWriter) error {
-	var payload CustomContentBlockDeltaEvent
+	var payload bedrock.CustomContentBlockDeltaEvent
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
 		logrus.Warnf("Error unmarshaling payload: %v", err)
 		return nil
@@ -174,13 +149,13 @@ func handleContentBlockDelta(event eventstream.Message, w http.ResponseWriter) e
 	return sendOpenAIChunk(openAIChunk, w)
 }
 
-func extractContentOrToolCall(delta json.RawMessage) (string, *ToolCall, error) {
-	var textDelta TextDelta
+func extractContentOrToolCall(delta json.RawMessage) (string, *bedrock.ToolCall, error) {
+	var textDelta bedrock.TextDelta
 	if err := json.Unmarshal(delta, &textDelta); err == nil {
 		return textDelta.Value, nil, nil
 	}
 
-	var toolCall ToolCall
+	var toolCall bedrock.ToolCall
 	if err := json.Unmarshal(delta, &toolCall); err == nil {
 		return "", &toolCall, nil
 	}
@@ -188,7 +163,7 @@ func extractContentOrToolCall(delta json.RawMessage) (string, *ToolCall, error) 
 	return "", nil, fmt.Errorf("failed to unmarshal delta")
 }
 
-func createOpenAIChunk(content string, toolCall *ToolCall) map[string]interface{} {
+func createOpenAIChunk(content string, toolCall *bedrock.ToolCall) map[string]interface{} {
 
 	delta := map[string]interface{}{}
 	if content != "" {
@@ -244,26 +219,7 @@ func sendOpenAIChunk(openAIChunk map[string]interface{}, w http.ResponseWriter) 
 	return nil
 }
 
-func (e *BedrockEngine) handleNonStreamingResponse(bedrockResp *http.Response, w http.ResponseWriter) error {
-	logrus.Infof("Sending non-streaming response back")
-	defer bedrockResp.Body.Close()
-	logrus.Infof("Bedrock response status: %s", bedrockResp.Status)
-
-	var bedrockBody BedrockResponse
-	if err := json.NewDecoder(bedrockResp.Body).Decode(&bedrockBody); err != nil {
-		logrus.Infof("Error decoding Bedrock response: %v", err)
-		return err
-	}
-
-	logrus.Infof("Bedrock resp %v", bedrockBody)
-	// logrus.Infof("Raw response from bedrock: %v", bedrockResp.Body)
-	// print raw bedrcokResp body
-
-	openAIResp := createOpenAIResponse(bedrockBody)
-	return sendOpenAIResponse(openAIResp, w)
-}
-
-func createOpenAIResponse(bedrockBody BedrockResponse) map[string]interface{} {
+func createOpenAIResponse(bedrockBody bedrock.BedrockResponse) map[string]interface{} {
 	messageContent := ""
 	var toolCalls []map[string]interface{}
 

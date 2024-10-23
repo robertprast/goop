@@ -3,6 +3,7 @@ package openai_proxy
 import (
 	"encoding/json"
 	"fmt"
+	bedrock2 "github.com/robertprast/goop/pkg/openai_proxy/transformers/bedrock"
 	"io"
 	"net/http"
 	"strings"
@@ -13,6 +14,11 @@ import (
 	"github.com/robertprast/goop/pkg/utils"
 	"github.com/sirupsen/logrus"
 )
+
+type OpenAIProxyEngine interface {
+	SendChatCompletionResponse(bedrockResp *http.Response, w http.ResponseWriter, stream bool) error
+	TransformChatCompletionRequest(reqBody openai_types.InconcomingChatCompletionRequest) ([]byte, error)
+}
 
 type OpenAIProxyHandler struct {
 	config utils.Config
@@ -90,7 +96,10 @@ func (h *OpenAIProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			},
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(models)
+		err := json.NewEncoder(w).Encode(models)
+		if err != nil {
+			return
+		}
 		return
 	case "/openai-proxy/v1/chat/completions":
 		if r.Method == http.MethodPost {
@@ -100,7 +109,12 @@ func (h *OpenAIProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, "Error reading request body", http.StatusInternalServerError)
 				return
 			}
-			defer r.Body.Close()
+			defer func(Body io.ReadCloser) {
+				err := Body.Close()
+				if err != nil {
+
+				}
+			}(r.Body)
 
 			// log the body for debugging
 			logrus.Infof("Request body raw: %s", string(body))
@@ -116,7 +130,7 @@ func (h *OpenAIProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			logrus.Infof("Request body after transform: %v", reqBody)
 			h.handleChatCompletions(w, r, reqBody, reqBody.Stream)
 		} else {
-			http.Error(w, "Unssported method", http.StatusMethodNotAllowed)
+			http.Error(w, "Unsupported method", http.StatusMethodNotAllowed)
 		}
 
 	default:
@@ -170,7 +184,13 @@ func (h *OpenAIProxyHandler) selectEngine(model string) (engine.Engine, error) {
 	switch {
 	case strings.HasPrefix(model, "bedrock/"):
 		logrus.Info("Selecting bedrock engine")
-		return bedrock.NewBedrockEngine(h.config.Engines["bedrock"])
+		bedrock, err := bedrock.NewBedrockEngine(h.config.Engines["bedrock"])
+		if err != nil {
+			return nil, err
+		}
+		return bedrock2.BedrockProxy{
+			BedrockEngine: bedrock,
+		}, nil
 	case strings.HasPrefix(model, "vertex/"):
 		return nil, fmt.Errorf("vertex AI not yet implemented")
 	default:

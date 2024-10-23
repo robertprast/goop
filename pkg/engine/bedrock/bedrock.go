@@ -3,7 +3,6 @@ package bedrock
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -15,13 +14,12 @@ import (
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
 	"github.com/robertprast/goop/pkg/engine"
-	openai_types "github.com/robertprast/goop/pkg/openai_proxy/types"
 	"github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v2"
 	// imported as openai
 )
 
-var _ engine.OpenAIProxyEngine = (*BedrockEngine)(nil)
+//var _ engine.OpenAIProxyEngine = (*BedrockEngine)(nil)
 
 type BedrockEngine struct {
 	backend   *url.URL
@@ -105,34 +103,6 @@ func (e *BedrockEngine) ModifyRequest(r *http.Request) {
 	logrus.Infof("Modified request for backend: %s", e.backend)
 }
 
-func (e *BedrockEngine) TransformChatCompletionRequest(reqBody openai_types.InconcomingChatCompletionRequest) ([]byte, error) {
-
-	logrus.Infof("Request params: %v", reqBody)
-
-	// log the requbody as a pretty json string for debugging
-	reqBodyStr, _ := json.MarshalIndent(reqBody, "", "  ")
-	logrus.Infof("Request body: %s", reqBodyStr)
-
-	bedrockRequest := BedrockRequest{
-		Messages:        transformMessages(reqBody.Messages),
-		InferenceConfig: buildInferenceConfig(reqBody),
-		System: []SystemMessage{
-			{Text: "You are an assistant."},
-		},
-	}
-
-	toolConfig := buildToolConfig(reqBody)
-	if toolConfig != nil && len(toolConfig.Tools) > 0 {
-		bedrockRequest.ToolConfig = toolConfig
-	}
-
-	// log the bedrock request as a pretty json string for debugging
-	bedrockRequestStr, _ := json.MarshalIndent(bedrockRequest, "", "  ")
-	logrus.Infof("Bedrock request: %s", bedrockRequestStr)
-
-	return json.Marshal(bedrockRequest)
-}
-
 func (e *BedrockEngine) HandleChatCompletionRequest(ctx context.Context, transformedBody []byte, stream bool) (*http.Response, error) {
 
 	endpoint := fmt.Sprintf("%s/model/%s/%s", e.backend.String(), "us.anthropic.claude-3-haiku-20240307-v1:0", getEndpointSuffix(stream))
@@ -159,14 +129,6 @@ func (e *BedrockEngine) HandleChatCompletionRequest(ctx context.Context, transfo
 	}
 
 	return resp, nil
-}
-
-func (e *BedrockEngine) SendChatCompletionResponse(bedrockResp *http.Response, w http.ResponseWriter, stream bool) error {
-	logrus.Infof("Sending request to bedrock")
-	if bedrockResp.Header.Get("Content-Type") == "application/vnd.amazon.eventstream" {
-		return e.handleStreamingResponse(bedrockResp, w)
-	}
-	return e.handleNonStreamingResponse(bedrockResp, w)
 }
 
 func (e *BedrockEngine) HandleResponseAfterFinish(resp *http.Response, body []byte) {
