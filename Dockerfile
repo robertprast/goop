@@ -10,4 +10,5 @@ FROM alpine:latest
 WORKDIR /app
 COPY --from=builder /app/bin/goop /app/goop
 EXPOSE 8080
+COPY config.yaml /app/config.yaml
 ENTRYPOINT ["/app/goop"]
