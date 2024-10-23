@@ -13,7 +13,7 @@ import (
 )
 
 // Sign the request using AWS SDK v2
-func (e *BedrockEngine) signRequest(req *http.Request) {
+func (e *BedrockEngine) SignRequest(req *http.Request) {
 	creds, err := e.awsConfig.Credentials.Retrieve(context.Background())
 	if err != nil {
 		logrus.Errorf("Failed to retrieve AWS credentials: %v", err)

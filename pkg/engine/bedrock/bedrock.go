@@ -1,10 +1,8 @@
 package bedrock
 
 import (
-	"bytes"
 	"context"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -22,11 +20,12 @@ import (
 //var _ engine.OpenAIProxyEngine = (*BedrockEngine)(nil)
 
 type BedrockEngine struct {
-	backend   *url.URL
+	Backend *url.URL
+	Client  *bedrockruntime.Client
+
 	whitelist []string
 	prefix    string
 	awsConfig aws.Config
-	Client    *bedrockruntime.Client
 	signer    *v4.Signer
 }
 
@@ -67,7 +66,7 @@ func NewBedrockEngine(configStr string) (*BedrockEngine, error) {
 	client := bedrockruntime.NewFromConfig(cfg)
 
 	engine := &BedrockEngine{
-		backend:   url,
+		Backend:   url,
 		whitelist: []string{"/model/", "/invoke", "/converse", "/converse-stream"},
 		prefix:    "/bedrock",
 		awsConfig: cfg,
@@ -94,52 +93,17 @@ func (e *BedrockEngine) IsAllowedPath(path string) bool {
 
 func (e *BedrockEngine) ModifyRequest(r *http.Request) {
 	r.URL.Path = strings.TrimPrefix(r.URL.Path, e.prefix)
-	r.Host = e.backend.Host
-	r.URL.Scheme = e.backend.Scheme
-	r.URL.Host = e.backend.Host
+	r.Host = e.Backend.Host
+	r.URL.Scheme = e.Backend.Scheme
+	r.URL.Host = e.Backend.Host
 	r.Header.Del("Authorization")
 
-	e.signRequest(r)
-	logrus.Infof("Modified request for backend: %s", e.backend)
-}
-
-func (e *BedrockEngine) HandleChatCompletionRequest(ctx context.Context, transformedBody []byte, stream bool) (*http.Response, error) {
-
-	endpoint := fmt.Sprintf("%s/model/%s/%s", e.backend.String(), "us.anthropic.claude-3-haiku-20240307-v1:0", getEndpointSuffix(stream))
-
-	logrus.Infof("Request body: %s", transformedBody)
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(transformedBody))
-	if err != nil {
-		return nil, fmt.Errorf("error creating request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	e.signRequest(req)
-
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("error making HTTP request: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		logrus.Errorf("Bedrock API error: Status %d, Body: %s", resp.StatusCode, string(body))
-		resp.Body = io.NopCloser(bytes.NewBuffer(body))
-	}
-
-	return resp, nil
+	e.SignRequest(r)
+	logrus.Infof("Modified request for backend: %s", e.Backend)
 }
 
 func (e *BedrockEngine) HandleResponseAfterFinish(resp *http.Response, body []byte) {
 	id, _ := resp.Request.Context().Value(engine.RequestId).(string)
 	logrus.Infof("Response [HTTP %d] Correlation ID: %s Body Length: %d\n",
 		resp.StatusCode, id, len(string(body)))
-}
-
-func getEndpointSuffix(stream bool) string {
-	if stream {
-		return "converse-stream"
-	}
-	return "converse"
 }

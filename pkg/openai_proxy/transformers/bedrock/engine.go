@@ -1,18 +1,18 @@
 package bedrock
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 
 	"github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream"
-	"github.com/robertprast/goop/pkg/engine"
 	"github.com/robertprast/goop/pkg/engine/bedrock"
 	openai_types "github.com/robertprast/goop/pkg/openai_proxy/types"
 	"github.com/sirupsen/logrus"
 )
-
-var _ engine.OpenAIProxyEngine = (*BedrockProxy)(nil)
 
 type BedrockProxy struct {
 	*bedrock.BedrockEngine
@@ -97,4 +97,39 @@ func (e *BedrockProxy) handleStreamingResponse(bedrockResp *http.Response, w htt
 	}
 
 	return nil
+}
+
+func (e *BedrockProxy) HandleChatCompletionRequest(ctx context.Context, transformedBody []byte, stream bool) (*http.Response, error) {
+
+	endpoint := fmt.Sprintf("%s/model/%s/%s", e.Backend.String(), "us.anthropic.claude-3-haiku-20240307-v1:0", getEndpointSuffix(stream))
+
+	logrus.Infof("Request body: %s", transformedBody)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(transformedBody))
+	if err != nil {
+		return nil, fmt.Errorf("error creating request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	e.SignRequest(req)
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("error making HTTP request: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		logrus.Errorf("Bedrock API error: Status %d, Body: %s", resp.StatusCode, string(body))
+		resp.Body = io.NopCloser(bytes.NewBuffer(body))
+	}
+
+	return resp, nil
+}
+
+func getEndpointSuffix(stream bool) string {
+	if stream {
+		return "converse-stream"
+	}
+	return "converse"
 }
