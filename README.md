@@ -2,6 +2,8 @@
 
 Goop is a go based reverse proxy meant to be a single interface for multi-cloud LLM deployments and SaaS API deployments. Supported engines as of now are `OpenAI`, `AzureOpenAI`, `Vertex AI (Google)` and `Bedrock`. 
 
+Additionally, there is a common `OpenAI proxy` to allow for a single interface based on OpenAI schemas for all possible models for bedrock and vertex . This allows you to pass `bedrock/<model_id>` to the OpenAI sdk as the `model`. 
+
 - [Architecture](#architecture)
 - [Setup and Installation](#setup-and-installation)
 - [Usage](#usage)
@@ -20,6 +22,7 @@ This reverse proxy integrates multiple LLM providers (e.g., OpenAI, Bedrock, Azu
      - `/bedrock` for the Bedrock (Anthropic) engine.
      - `/azure` for the Azure OpenAI engine.
      - `/vertex` for Google Vertex AI engine
+     - `/openai-proxy` for OpenAI interfaces for Bedrock/Vertex based LLMs
 
 3. **Pre and Post-Response Hooks**:
    - Engines integrate with the audit package to log inline hooks on raw request/response structs. The proxy supports non-blocking SSE/streaming, and the post-response hook is triggered only after the client connection is closed.
@@ -98,9 +101,34 @@ print(response)
 
 ## Advanced Usage
 
-Chaining multiple native LLM SDK clients that flow through a single agentic framework and proxy all requests to a single reverse proxy service
+#### Using the OpenAI SDK for bedrock based models
+
+```python
+from openai import OpenAI, AzureOpenAI
+
+client = OpenAI(
+    base_url="http://localhost:8080/openai-proxy/v1",
+    api_key="test",
+)
+chat_completion = client.chat.completions.create(
+    messages=[
+        {
+            "role": "user",
+            "content": "Whats up dog?",
+        }
+    ],
+    model="bedrock/us.anthropic.claude-3-haiku-20240307-v1:0",
+    stream=False,
+)
+
+print(chat_completion)
+print(chat_completion.choices[0].message.content)
+```
+
+
 
 #### ELL Framework with all clients
+Chaining multiple native LLM SDK clients that flow through a single agentic framework and proxy all requests to a single reverse proxy service
 
 For more information on the ELL framework, visit the [ELL GitHub repository](https://github.com/MadcowD/ell/).
 
