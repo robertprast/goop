@@ -70,7 +70,7 @@ func NewBedrockEngine(configStr string) (*BedrockEngine, error) {
 
 	engine := &BedrockEngine{
 		backend:   url,
-		whitelist: []string{"/model/", "/invoke", "/converse", "/converse-stream", "/v1/chat/completions"},
+		whitelist: []string{"/model/", "/invoke", "/converse", "/converse-stream"},
 		prefix:    "/bedrock",
 		awsConfig: cfg,
 		Client:    client,
