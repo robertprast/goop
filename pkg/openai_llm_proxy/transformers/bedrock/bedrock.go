@@ -10,7 +10,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream"
 	"github.com/robertprast/goop/pkg/engine/bedrock"
-	openai_types "github.com/robertprast/goop/pkg/openai_proxy/types"
+	openai_types "github.com/robertprast/goop/pkg/openai_llm_proxy/types"
 	"github.com/sirupsen/logrus"
 )
 

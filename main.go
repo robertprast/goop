@@ -4,7 +4,7 @@ import (
 	"log"
 	"net/http"
 
-	"github.com/robertprast/goop/pkg/openai_proxy"
+	openai_proxy "github.com/robertprast/goop/pkg/openai_llm_proxy"
 	"github.com/robertprast/goop/pkg/proxy"
 	"github.com/robertprast/goop/pkg/utils"
 	"github.com/sirupsen/logrus"
