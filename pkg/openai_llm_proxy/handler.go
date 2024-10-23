@@ -9,8 +9,8 @@ import (
 	"strings"
 
 	"github.com/robertprast/goop/pkg/engine/bedrock"
-	bedrock_proxy "github.com/robertprast/goop/pkg/openai_proxy/transformers/bedrock"
-	openai_types "github.com/robertprast/goop/pkg/openai_proxy/types"
+	bedrock_proxy "github.com/robertprast/goop/pkg/openai_llm_proxy/transformers/bedrock"
+	openai_types "github.com/robertprast/goop/pkg/openai_llm_proxy/types"
 	"github.com/robertprast/goop/pkg/utils"
 	"github.com/sirupsen/logrus"
 )
