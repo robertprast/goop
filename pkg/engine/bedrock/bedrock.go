@@ -15,6 +15,7 @@ import (
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
 	"github.com/robertprast/goop/pkg/engine"
+	openai_types "github.com/robertprast/goop/pkg/openai_proxy/types"
 	"github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v2"
 	// imported as openai
@@ -106,9 +107,16 @@ func (e *BedrockEngine) ModifyRequest(r *http.Request) {
 	logrus.Infof("Modified request for backend: %s", e.backend)
 }
 
-func (e *BedrockEngine) TransformChatCompletionRequest(reqBody map[string]interface{}) ([]byte, error) {
+func (e *BedrockEngine) TransformChatCompletionRequest(reqBody openai_types.InconcomingChatCompletionRequest) ([]byte, error) {
+
+	logrus.Infof("Request params: %v", reqBody)
+
+	// log the requbody as a pretty json string for debugging
+	reqBodyStr, _ := json.MarshalIndent(reqBody, "", "  ")
+	logrus.Infof("Request body: %s", reqBodyStr)
+
 	bedrockRequest := BedrockRequest{
-		Messages:        transformMessages(reqBody["messages"].([]interface{})),
+		Messages:        transformMessages(reqBody.Messages),
 		InferenceConfig: buildInferenceConfig(reqBody),
 		System: []SystemMessage{
 			{Text: "You are an assistant."},
@@ -119,6 +127,10 @@ func (e *BedrockEngine) TransformChatCompletionRequest(reqBody map[string]interf
 	if toolConfig != nil && len(toolConfig.Tools) > 0 {
 		bedrockRequest.ToolConfig = toolConfig
 	}
+
+	// log the bedrock request as a pretty json string for debugging
+	bedrockRequestStr, _ := json.MarshalIndent(bedrockRequest, "", "  ")
+	logrus.Infof("Bedrock request: %s", bedrockRequestStr)
 
 	return json.Marshal(bedrockRequest)
 }
@@ -160,7 +172,5 @@ func (e *BedrockEngine) SendChatCompletionResponse(bedrockResp *http.Response, w
 }
 
 func (e *BedrockEngine) HandleResponseAfterFinish(resp *http.Response, body []byte) {
-	id, _ := resp.Request.Context().Value(engine.RequestId).(string)
-	logrus.Infof("Response [HTTP %d] Correlation ID: %s Body Length: %d\n",
-		resp.StatusCode, id, len(string(body)))
+
 }

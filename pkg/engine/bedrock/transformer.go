@@ -8,104 +8,113 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream"
+	openai_types "github.com/robertprast/goop/pkg/openai_proxy/types"
 	"github.com/sirupsen/logrus"
 )
 
-func buildToolConfig(reqBody map[string]interface{}) *ToolConfig {
-	tools, hasTools := reqBody["tools"].([]interface{})
-	if !hasTools || len(tools) == 0 {
+func buildToolConfig(reqBody openai_types.InconcomingChatCompletionRequest) *ToolConfig {
+	if len(reqBody.Tools) == 0 {
 		return nil
 	}
 
-	toolConfig := &ToolConfig{}
+	toolConfig := &ToolConfig{
+		Tools: make([]Tool, len(reqBody.Tools)),
+	}
 
-	if tools, ok := reqBody["tools"].([]interface{}); ok {
-		toolConfig.Tools = make([]Tool, len(tools))
-		for i, tool := range tools {
-			toolMap := tool.(map[string]interface{})
-			functionMap := toolMap["function"].(map[string]interface{})
-			parametersMap := functionMap["parameters"].(map[string]interface{})
+	for i, tool := range reqBody.Tools {
+		// Ensure tool name and description are provided to prevent Bedrock API validation errors.
+		if tool.Function.Name == "" {
+			tool.Function.Name = "default_function_name"
+		}
+		if tool.Function.Description == "" {
+			tool.Function.Description = "Default description for the function"
+		}
 
-			toolConfig.Tools[i] = Tool{
-				ToolSpec: ToolSpec{
-					Name:        functionMap["name"].(string),
-					Description: functionMap["description"].(string),
-					InputSchema: InputSchema{
-						JSON: parametersMap,
-					},
+		toolConfig.Tools[i] = Tool{
+			ToolSpec: ToolSpec{
+				Name:        tool.Function.Name,
+				Description: tool.Function.Description,
+				InputSchema: InputSchema{
+					JSON: tool.Function.Parameters,
 				},
+			},
+		}
+	}
+
+	// Default tool choice logic
+	// Updated tool choice logic to match the given requirement.
+	// Updated tool choice logic to match the given requirement.
+	switch choice := reqBody.ToolChoice.(type) {
+	case string:
+		switch choice {
+		case "auto":
+			toolConfig.ToolChoice = ToolChoice{Auto: &struct{}{}}
+		case "required":
+			toolConfig.ToolChoice = ToolChoice{Any: &struct{}{}}
+		}
+	case map[string]interface{}:
+		if tool, ok := choice["function"].(map[string]interface{}); ok {
+			if name, ok := tool["name"].(string); ok {
+				toolConfig.ToolChoice = ToolChoice{Tool: &ToolName{Name: name}}
 			}
 		}
 	}
-
-	if toolChoice, ok := reqBody["tool_choice"]; ok {
-		toolConfig.ToolChoice = parseToolChoice(toolChoice)
-	} else {
-		// Default to "auto" if not specified
-		toolConfig.ToolChoice = ToolChoice{Auto: &struct{}{}}
-	}
-
 	return toolConfig
 }
 
-func parseToolChoice(toolChoice interface{}) ToolChoice {
-	tc := ToolChoice{}
-
-	switch v := toolChoice.(type) {
-	case string:
-		if v == "auto" {
-			tc.Auto = &struct{}{}
-		} else if v == "any" {
-			tc.Any = &struct{}{}
-		}
-	case map[string]interface{}:
-		if _, ok := v["auto"]; ok {
-			tc.Auto = &struct{}{}
-		} else if _, ok := v["any"]; ok {
-			tc.Any = &struct{}{}
-		} else if toolName, ok := v["name"].(string); ok {
-			tc.Tool = &ToolName{Name: toolName}
-		}
-	}
-
-	return tc
-}
-
-func transformMessages(messages []interface{}) []Message {
+// transformMessages converts the OpenAI-style messages into Bedrock-compatible messages.
+func transformMessages(messages []openai_types.ChatMessage) []Message {
 	bedrockMessages := make([]Message, len(messages))
 	for i, message := range messages {
-		msg := message.(map[string]interface{})
-		content := []ContentBlock{
-			{
+		contentBlocks := []ContentBlock{}
+
+		if message.Content != nil {
+			contentBlocks = append(contentBlocks, ContentBlock{
 				Type: "text",
-				Text: msg["content"].(string),
-			},
+				Text: *message.Content,
+			})
 		}
+
+		// <TODO> Fix ContentBlock types
+		// if message.Image != nil {
+		// 	contentBlocks = append(contentBlocks, ContentBlock{
+		// 		Type: "image",
+		// 		URL:  message.Image.URL,
+		// 		Caption: func() string {
+		// 			if message.Image.Caption != nil {
+		// 				return *message.Image.Caption
+		// 			}
+		// 			return ""
+		// 		}(),
+		// 	})
+		// }
+
 		bedrockMessages[i] = Message{
-			Role:    msg["role"].(string),
-			Content: content,
+			Role:    message.Role,
+			Content: contentBlocks,
 		}
 	}
 	return bedrockMessages
 }
 
-func buildInferenceConfig(reqBody map[string]interface{}) InferenceConfig {
+// buildInferenceConfig generates a Bedrock-compatible inference configuration from the OpenAI proxy request.
+func buildInferenceConfig(reqBody openai_types.InconcomingChatCompletionRequest) InferenceConfig {
 	config := InferenceConfig{}
-	if maxTokens, ok := reqBody["max_completion_tokens"].(int); ok {
-		config.MaxTokens = maxTokens
+	if reqBody.MaxTokens != nil {
+		config.MaxTokens = *reqBody.MaxTokens
 	}
-	if temperature, ok := reqBody["temperature"].(float64); ok {
-		config.Temperature = temperature
+	if reqBody.Temperature != nil {
+		config.Temperature = *reqBody.Temperature
 	} else {
 		config.Temperature = 0.7
 	}
-	if topP, ok := reqBody["top_p"].(float64); ok {
-		config.TopP = topP
+	if reqBody.TopP != nil {
+		config.TopP = *reqBody.TopP
 	} else {
 		config.TopP = 1.0
 	}
-	if stop, ok := reqBody["stop"].([]string); ok {
-		config.StopSequences = stop
+	if reqBody.Stop != nil {
+		config.StopSequences = []string{*reqBody.Stop}
 	}
 	return config
 }

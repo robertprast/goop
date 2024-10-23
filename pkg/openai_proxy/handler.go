@@ -9,6 +9,7 @@ import (
 
 	"github.com/robertprast/goop/pkg/engine"
 	"github.com/robertprast/goop/pkg/engine/bedrock"
+	openai_types "github.com/robertprast/goop/pkg/openai_proxy/types"
 	"github.com/robertprast/goop/pkg/utils"
 	"github.com/sirupsen/logrus"
 )
@@ -93,19 +94,27 @@ func (h *OpenAIProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	case "/openai-proxy/v1/chat/completions":
 		if r.Method == http.MethodPost {
+			// Read the entire body first
 			body, err := io.ReadAll(r.Body)
 			if err != nil {
 				http.Error(w, "Error reading request body", http.StatusInternalServerError)
 				return
 			}
-			r.Body.Close()
+			defer r.Body.Close()
 
-			var reqBody map[string]interface{}
+			// log the body for debugging
+			logrus.Infof("Request body raw: %s", string(body))
+
+			// Now unmarshal the request body into the struct
+			var reqBody openai_types.InconcomingChatCompletionRequest
 			if err := json.Unmarshal(body, &reqBody); err != nil {
+				logrus.Errorf("Error parsing request body: %v", err)
 				http.Error(w, "Error parsing request body", http.StatusBadRequest)
 				return
 			}
-			h.handleChatCompletions(w, r, reqBody)
+
+			logrus.Infof("Request body after transform: %v", reqBody)
+			h.handleChatCompletions(w, r, reqBody, reqBody.Stream)
 		} else {
 			http.Error(w, "Unssported method", http.StatusMethodNotAllowed)
 		}
@@ -115,8 +124,8 @@ func (h *OpenAIProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (h *OpenAIProxyHandler) handleChatCompletions(w http.ResponseWriter, r *http.Request, reqBody map[string]interface{}) {
-	eng, err := h.selectEngine(reqBody["model"].(string))
+func (h *OpenAIProxyHandler) handleChatCompletions(w http.ResponseWriter, r *http.Request, reqBody openai_types.InconcomingChatCompletionRequest, stream bool) {
+	eng, err := h.selectEngine(reqBody.Model)
 	if err != nil {
 		logrus.Errorf("Error getting engine: %v", err)
 		http.Error(w, "Error selecting engine", http.StatusInternalServerError)
@@ -124,12 +133,7 @@ func (h *OpenAIProxyHandler) handleChatCompletions(w http.ResponseWriter, r *htt
 	}
 	logrus.Infof("HI ")
 
-	var stream bool
 	logrus.Infof("Stream: %v", reqBody)
-
-	if rawStream, ok := reqBody["stream"]; ok && rawStream == true {
-		stream = true
-	}
 
 	logrus.Infof("Stream: %v", stream)
 
