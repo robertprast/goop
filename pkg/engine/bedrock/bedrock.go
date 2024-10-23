@@ -88,8 +88,6 @@ func (e *BedrockEngine) IsAllowedPath(path string) bool {
 	for _, allowedPath := range e.whitelist {
 		if strings.HasPrefix(path, e.prefix+allowedPath) {
 			return true
-		} else if strings.HasPrefix(path, "/openai-proxy/") {
-			return true
 		}
 	}
 	logrus.Warnf("Path %s is not allowed", path)
