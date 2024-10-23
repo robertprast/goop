@@ -123,6 +123,47 @@ chat_completion = client.chat.completions.create(
 
 print(chat_completion)
 print(chat_completion.choices[0].message.content)
+
+
+### Tool Use Support
+tools = [
+    {
+        "type": "function",
+        "function": {
+            "name": "get_delivery_date",
+            "description": "Get the delivery date for a customer's order. Call this whenever you need to know the delivery date, for example when a customer asks 'Where is my package'",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "order_id": {
+                        "type": "string",
+                        "description": "The customer's order ID.",
+                    },
+                },
+                "required": ["order_id"],
+                "additionalProperties": False,
+            },
+        },
+    }
+]
+
+messages = [
+    {"role": "user", "content": "Hi, can you tell me the delivery date for my order?"}
+]
+
+
+client = OpenAI(
+    base_url="http://localhost:8080/openai-proxy/v1",
+    api_key="test",
+)
+chat_completion = client.chat.completions.create(
+    messages=messages,
+    model="bedrock/us.anthropic.claude-3-haiku-20240307-v1:0",
+    stream=False,
+    tools=tools,
+    tool_choice="required",
+)
+print(chat_completion.choices[0])
 ```
 
 
