@@ -169,7 +169,7 @@ print(chat_completion.choices[0])
 
 
 #### ELL Framework with all clients
-Chaining multiple native LLM SDK clients that flow through a single agentic framework and proxy all requests to a single reverse proxy service
+Chaining multiple native LLM SDK clients that flow through a single agentic framework and proxy all requests to the reverse proxy service
 
 For more information on the ELL framework, visit the [ELL GitHub repository](https://github.com/MadcowD/ell/).
 
