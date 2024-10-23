@@ -2,8 +2,6 @@ on:
   release:
     types: [created]
 
-
-
 jobs:
   releases-matrix:
     name: release binary
@@ -27,9 +25,34 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           goos: ${{ matrix.goos }}
           goarch: ${{ matrix.goarch }}
-          ldflags: '-s -w'
+          ldflags: "-s -w"
           binary_name: "goop"
           extra_files: LICENSE README.md
           md5sum: FALSE
           sha256sum: TRUE
-  
+  publish-docker:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - linux/amd64
+          # TODO: other platforms
+    #          - linux/arm/v6
+    #          - linux/arm/v7
+    #          - linux/arm64
+    #          - darwin/amd64
+    permissions:
+      packages: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v3
+      - name: Log in to registry
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u $ --password-stdin
+      - name: Build and push
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          push: true
+          tags: "ghcr.io/${{ github.repository_owner }}/goop:${{ github.ref_name }}"
