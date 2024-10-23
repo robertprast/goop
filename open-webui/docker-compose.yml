@@ -1,5 +1,3 @@
-
-
 services:
   # open-webui-pipelines:
   #   pull_policy: always
