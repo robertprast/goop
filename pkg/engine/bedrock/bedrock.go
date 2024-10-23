@@ -172,5 +172,14 @@ func (e *BedrockEngine) SendChatCompletionResponse(bedrockResp *http.Response, w
 }
 
 func (e *BedrockEngine) HandleResponseAfterFinish(resp *http.Response, body []byte) {
+	id, _ := resp.Request.Context().Value(engine.RequestId).(string)
+	logrus.Infof("Response [HTTP %d] Correlation ID: %s Body Length: %d\n",
+		resp.StatusCode, id, len(string(body)))
+}
 
+func getEndpointSuffix(stream bool) string {
+	if stream {
+		return "converse-stream"
+	}
+	return "converse"
 }

@@ -41,9 +41,6 @@ func buildToolConfig(reqBody openai_types.InconcomingChatCompletionRequest) *Too
 		}
 	}
 
-	// Default tool choice logic
-	// Updated tool choice logic to match the given requirement.
-	// Updated tool choice logic to match the given requirement.
 	switch choice := reqBody.ToolChoice.(type) {
 	case string:
 		switch choice {
@@ -117,13 +114,6 @@ func buildInferenceConfig(reqBody openai_types.InconcomingChatCompletionRequest)
 		config.StopSequences = []string{*reqBody.Stop}
 	}
 	return config
-}
-
-func getEndpointSuffix(stream bool) string {
-	if stream {
-		return "converse-stream"
-	}
-	return "converse"
 }
 
 func (e *BedrockEngine) handleStreamingResponse(bedrockResp *http.Response, w http.ResponseWriter) error {
