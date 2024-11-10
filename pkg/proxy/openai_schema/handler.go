@@ -49,7 +49,7 @@ func (h *OpenAIProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	logrus.Infof("Transforming path %s", r.URL.Path)
 
 	switch r.URL.Path {
-	case "/openai_schema-engine_proxy/v1/models":
+	case "/openai-proxy/v1/models":
 		logrus.Infof("Fetching model list")
 		models := Response{
 			Object: "list",
@@ -104,7 +104,7 @@ func (h *OpenAIProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		return
-	case "/openai_schema-engine_proxy/v1/chat/completions":
+	case "/openai-proxy/v1/chat/completions":
 		if r.Method == http.MethodPost {
 			// Read the entire body first
 			body, err := io.ReadAll(r.Body)

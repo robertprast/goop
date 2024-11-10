@@ -68,14 +68,23 @@ type Message struct {
 }
 
 type ContentBlock struct {
-	Type string `json:"type"`
-	Text string `json:"text"`
+	Text   string `json:"text,omitempty"`
+	Format string `json:"format,omitempty"`
+	Image  *Image `json:"image,omitempty"`
 }
 
 type SystemMessage struct {
 	Text string `json:"text"`
 }
 
+type Image struct {
+	Format string      `json:"format,omitempty"`
+	Source ImageSource `json:"source,omitempty"`
+}
+
+type ImageSource struct {
+	Bytes string `json:"bytes,omitempty"`
+}
 type InferenceConfig struct {
 	Temperature   float64  `json:"temperature,omitempty"`
 	TopP          float64  `json:"top_p,omitempty"`
