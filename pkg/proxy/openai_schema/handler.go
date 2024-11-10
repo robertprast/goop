@@ -4,13 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/robertprast/goop/pkg/proxy/openai_schema/types"
+	bedrock_proxy "github.com/robertprast/goop/pkg/transformers/bedrock"
 	"io"
 	"net/http"
 	"strings"
 
 	"github.com/robertprast/goop/pkg/engine/bedrock"
-	bedrock_proxy "github.com/robertprast/goop/pkg/openai_llm_proxy/transformers/bedrock"
-	openai_types "github.com/robertprast/goop/pkg/openai_llm_proxy/types"
 	"github.com/robertprast/goop/pkg/utils"
 	"github.com/sirupsen/logrus"
 )
@@ -20,7 +20,7 @@ var _ OpenAIProxyEngine = (*bedrock_proxy.BedrockProxy)(nil)
 type OpenAIProxyEngine interface {
 	HandleChatCompletionRequest(ctx context.Context, transformedBody []byte, stream bool) (*http.Response, error)
 	SendChatCompletionResponse(bedrockResp *http.Response, w http.ResponseWriter, stream bool) error
-	TransformChatCompletionRequest(reqBody openai_types.InconcomingChatCompletionRequest) ([]byte, error)
+	TransformChatCompletionRequest(reqBody openai_types.IncomingChatCompletionRequest) ([]byte, error)
 }
 
 type OpenAIProxyHandler struct {
@@ -49,7 +49,7 @@ func (h *OpenAIProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	logrus.Infof("Transforming path %s", r.URL.Path)
 
 	switch r.URL.Path {
-	case "/openai-proxy/v1/models":
+	case "/openai_schema-engine_proxy/v1/models":
 		logrus.Infof("Fetching model list")
 		models := Response{
 			Object: "list",
@@ -104,7 +104,7 @@ func (h *OpenAIProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		return
-	case "/openai-proxy/v1/chat/completions":
+	case "/openai_schema-engine_proxy/v1/chat/completions":
 		if r.Method == http.MethodPost {
 			// Read the entire body first
 			body, err := io.ReadAll(r.Body)
@@ -123,7 +123,7 @@ func (h *OpenAIProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			logrus.Infof("Request body raw: %s", string(body))
 
 			// Now unmarshal the request body into the struct
-			var reqBody openai_types.InconcomingChatCompletionRequest
+			var reqBody openai_types.IncomingChatCompletionRequest
 			if err := json.Unmarshal(body, &reqBody); err != nil {
 				logrus.Errorf("Error parsing request body: %v", err)
 				http.Error(w, "Error parsing request body", http.StatusBadRequest)
@@ -141,7 +141,7 @@ func (h *OpenAIProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (h *OpenAIProxyHandler) handleChatCompletions(w http.ResponseWriter, r *http.Request, reqBody openai_types.InconcomingChatCompletionRequest, stream bool) {
+func (h *OpenAIProxyHandler) handleChatCompletions(w http.ResponseWriter, r *http.Request, reqBody openai_types.IncomingChatCompletionRequest, stream bool) {
 	proxyEngine, err := h.selectEngine(reqBody.Model)
 	if err != nil {
 		logrus.Errorf("Error getting engine: %v", err)
@@ -180,13 +180,13 @@ func (h *OpenAIProxyHandler) selectEngine(model string) (OpenAIProxyEngine, erro
 	switch {
 	case strings.HasPrefix(model, "bedrock/"):
 		logrus.Info("Selecting bedrock engine")
-		bedrock, err := bedrock.NewBedrockEngine(h.config.Engines["bedrock"])
+		bedrockEngine, err := bedrock.NewBedrockEngine(h.config.Engines["bedrock"])
 		if err != nil {
 			logrus.Errorf("Error creating bedrock engine: %v", err)
 			return nil, err
 		}
 		return &bedrock_proxy.BedrockProxy{
-			BedrockEngine: bedrock,
+			BedrockEngine: bedrockEngine,
 		}, nil
 	case strings.HasPrefix(model, "vertex/"):
 		return nil, fmt.Errorf("vertex AI not yet implemented")

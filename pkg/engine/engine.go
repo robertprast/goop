@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"io"
 	"net/http"
 
 	"github.com/google/uuid"
@@ -11,7 +12,7 @@ type Engine interface {
 	Name() string
 	IsAllowedPath(path string) bool
 	ModifyRequest(r *http.Request)
-	HandleResponseAfterFinish(resp *http.Response, body []byte)
+	ResponseCallback(resp *http.Response, body io.Reader)
 }
 
 type contextKey string

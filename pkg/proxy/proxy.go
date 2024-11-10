@@ -41,12 +41,7 @@ func logMiddleware(next http.Handler) http.Handler {
 func auditMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		logrus.Infof("Auditing request: %s %s", r.Method, r.URL.Path)
-		bodyCopy, err := audit.CopyRequestBody(r)
-		if err != nil {
-			http.Error(w, "Bad Request", http.StatusBadRequest)
-			return
-		}
-		go audit.AuditRequest(r, bodyCopy)
+		audit.Request(r)
 		next.ServeHTTP(w, r)
 	})
 }
@@ -68,7 +63,6 @@ func engineMiddleware(config utils.Config) middleware {
 			var err error
 			switch firstPathSegment {
 			case "openai":
-
 				eng, err = openai.NewOpenAIEngineWithConfig(config.Engines["openai"])
 			case "azure":
 				eng, err = azure.NewAzureOpenAIEngineWithConfig(config.Engines["azure"])
@@ -109,7 +103,7 @@ func reverseProxy(w http.ResponseWriter, r *http.Request) {
 
 	proxy := &httputil.ReverseProxy{
 		Director:       func(req *http.Request) {},
-		ModifyResponse: audit.AuditResponse,
+		ModifyResponse: audit.Response,
 		Transport:      http.DefaultTransport,
 	}
 

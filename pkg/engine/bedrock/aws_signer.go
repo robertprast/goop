@@ -12,7 +12,8 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// Sign the request using AWS SDK v2
+// SignRequest Sign the request using AWS SDK v2
+// This will be applied to all requests made by the BedrockEngine
 func (e *BedrockEngine) SignRequest(req *http.Request) {
 	creds, err := e.awsConfig.Credentials.Retrieve(context.Background())
 	if err != nil {

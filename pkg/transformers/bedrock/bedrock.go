@@ -5,12 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/robertprast/goop/pkg/proxy/openai_schema/types"
 	"io"
 	"net/http"
 
 	"github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream"
 	"github.com/robertprast/goop/pkg/engine/bedrock"
-	openai_types "github.com/robertprast/goop/pkg/openai_llm_proxy/types"
 	"github.com/sirupsen/logrus"
 )
 
@@ -26,7 +26,7 @@ func (e *BedrockProxy) SendChatCompletionResponse(bedrockResp *http.Response, w 
 	return e.handleNonStreamingResponse(bedrockResp, w)
 }
 
-func (e *BedrockProxy) TransformChatCompletionRequest(reqBody openai_types.InconcomingChatCompletionRequest) ([]byte, error) {
+func (e *BedrockProxy) TransformChatCompletionRequest(reqBody openai_types.IncomingChatCompletionRequest) ([]byte, error) {
 
 	logrus.Infof("Request params: %v", reqBody)
 
@@ -34,7 +34,7 @@ func (e *BedrockProxy) TransformChatCompletionRequest(reqBody openai_types.Incon
 	reqBodyStr, _ := json.MarshalIndent(reqBody, "", "  ")
 	logrus.Infof("Request body: %s", reqBodyStr)
 
-	bedrockRequest := bedrock.BedrockRequest{
+	bedrockRequest := bedrock.Request{
 		Messages:        transformMessages(reqBody.Messages),
 		InferenceConfig: buildInferenceConfig(reqBody),
 		System: []bedrock.SystemMessage{
@@ -59,7 +59,7 @@ func (e *BedrockProxy) handleNonStreamingResponse(bedrockResp *http.Response, w 
 	defer bedrockResp.Body.Close()
 	logrus.Infof("Bedrock response status: %s", bedrockResp.Status)
 
-	var bedrockBody bedrock.BedrockResponse
+	var bedrockBody bedrock.Response
 	if err := json.NewDecoder(bedrockResp.Body).Decode(&bedrockBody); err != nil {
 		logrus.Infof("Error decoding Bedrock response: %v", err)
 		return err

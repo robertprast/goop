@@ -2,6 +2,7 @@ package openai
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -38,19 +39,19 @@ func NewOpenAIEngineWithConfig(configStr string) (*OpenAIEngine, error) {
 		return nil, fmt.Errorf("error parsing OpenAI config: missing base_url or api_key")
 	}
 
-	url, err := url.Parse(backend.BaseUrl)
+	parsedUrl, err := url.Parse(backend.BaseUrl)
 	if err != nil {
 		return nil, err
 	}
-	backend.BackendURL = url
+	backend.BackendURL = parsedUrl
 
-	engine := &OpenAIEngine{
+	e := &OpenAIEngine{
 		backend:   &backend,
 		whitelist: []string{"/v1/chat/completions", "/v1/completions", "/v1/models"},
 		prefix:    "/openai",
-		logger:    logrus.WithField("engine", "openai"),
+		logger:    logrus.WithField("e", "openai"),
 	}
-	return engine, nil
+	return e, nil
 }
 
 func (e *OpenAIEngine) Name() string {
@@ -78,8 +79,8 @@ func (e *OpenAIEngine) ModifyRequest(r *http.Request) {
 	e.logger.Infof("Modified request for backend: %s", e.backend.BackendURL)
 }
 
-func (e *OpenAIEngine) HandleResponseAfterFinish(resp *http.Response, body []byte) {
+func (e *OpenAIEngine) ResponseCallback(resp *http.Response, body io.Reader) {
 	id, _ := resp.Request.Context().Value(engine.RequestId).(string)
 	logrus.Infof("Response [HTTP %d] Correlation ID: %s Body Length: %d\n",
-		resp.StatusCode, id, len(string(body)))
+		resp.StatusCode, id, resp.ContentLength)
 }

@@ -17,7 +17,7 @@ type ToolUseDelta struct {
 	Value string `json:"input"`
 }
 
-type BedrockResponse struct {
+type Response struct {
 	Metrics struct {
 		LatencyMs int `json:"latencyMs"`
 	} `json:"metrics"`
@@ -55,7 +55,7 @@ type ToolCall struct {
 	} `json:"function"`
 }
 
-type BedrockRequest struct {
+type Request struct {
 	Messages        []Message       `json:"messages"`
 	InferenceConfig InferenceConfig `json:"inferenceConfig"`
 	System          []SystemMessage `json:"system"`
