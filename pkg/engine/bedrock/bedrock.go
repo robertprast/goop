@@ -3,6 +3,7 @@ package bedrock
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -14,7 +15,7 @@ import (
 	"github.com/robertprast/goop/pkg/engine"
 	"github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v2"
-	// imported as openai
+	// imported as openai_schema
 )
 
 //var _ engine.OpenAIProxyEngine = (*BedrockEngine)(nil)
@@ -43,8 +44,8 @@ func NewBedrockEngine(configStr string) (*BedrockEngine, error) {
 	}
 
 	if !goopConfig.Enabled {
-		logrus.Info("Bedrock engine is disabled")
-		return &BedrockEngine{}, fmt.Errorf("engine is disabled")
+		logrus.Info("Bedrock e is disabled")
+		return &BedrockEngine{}, fmt.Errorf("e is disabled")
 	}
 
 	cfg, err := awsconfig.LoadDefaultConfig(context.Background())
@@ -65,7 +66,7 @@ func NewBedrockEngine(configStr string) (*BedrockEngine, error) {
 
 	client := bedrockruntime.NewFromConfig(cfg)
 
-	engine := &BedrockEngine{
+	e := &BedrockEngine{
 		Backend:   url,
 		whitelist: []string{"/model/", "/invoke", "/converse", "/converse-stream"},
 		prefix:    "/bedrock",
@@ -73,7 +74,7 @@ func NewBedrockEngine(configStr string) (*BedrockEngine, error) {
 		Client:    client,
 		signer:    v4.NewSigner(),
 	}
-	return engine, nil
+	return e, nil
 }
 
 func (e *BedrockEngine) Name() string {
@@ -102,8 +103,8 @@ func (e *BedrockEngine) ModifyRequest(r *http.Request) {
 	logrus.Infof("Modified request for backend: %s", e.Backend)
 }
 
-func (e *BedrockEngine) HandleResponseAfterFinish(resp *http.Response, body []byte) {
+func (e *BedrockEngine) ResponseCallback(resp *http.Response, body io.Reader) {
 	id, _ := resp.Request.Context().Value(engine.RequestId).(string)
 	logrus.Infof("Response [HTTP %d] Correlation ID: %s Body Length: %d\n",
-		resp.StatusCode, id, len(string(body)))
+		resp.StatusCode, id, resp.ContentLength)
 }

@@ -5,7 +5,7 @@ import (
 	"errors"
 )
 
-type InconcomingChatCompletionRequest struct {
+type IncomingChatCompletionRequest struct {
 	Model            string         `json:"model"`                       // The model to use (e.g., "gpt-4").
 	Messages         []ChatMessage  `json:"messages"`                    // An array of messages in the conversation.
 	Temperature      *float64       `json:"temperature,omitempty"`       // Sampling temperature (0-2).
@@ -74,9 +74,11 @@ type ToolName struct {
 	Name string `json:"name"`
 }
 
-// Custom UnmarshalJSON for InconcomingChatCompletionRequest
-func (r *InconcomingChatCompletionRequest) UnmarshalJSON(data []byte) error {
-	type Alias InconcomingChatCompletionRequest
+// UnmarshalJSON Custom UnmarshalJSON for IncomingChatCompletionRequest
+// to validate that the Messages field is not nil and deal
+// with Alias struct
+func (r *IncomingChatCompletionRequest) UnmarshalJSON(data []byte) error {
+	type Alias IncomingChatCompletionRequest
 	aux := &struct {
 		*Alias
 	}{

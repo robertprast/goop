@@ -45,12 +45,12 @@ class Pipe:
             # OPENAI MODELS  #
             ##################
             {
-                "id": "openai/gpt-4o",
-                "name": "openai/gpt-4o",
+                "id": "openai_schema/gpt-4o",
+                "name": "openai_schema/gpt-4o",
             },
             {
-                "id": "openai/gpt-4o-mini",
-                "name": "openai/gpt-4o-mini",
+                "id": "openai_schema/gpt-4o-mini",
+                "name": "openai_schema/gpt-4o-mini",
             },
             # {
             #     "id": "azure/gpt-4o",
@@ -106,8 +106,8 @@ class Pipe:
 
     def pipe(self, body: dict, __user__: dict) -> Union[str, Iterator]:
         model_name = body["model"].replace("goop.", "")
-        if model_name.startswith("openai/"):
-            body["model"] = model_name.replace("openai/", "")
+        if model_name.startswith("openai_schema/"):
+            body["model"] = model_name.replace("openai_schema/", "")
             return self._handle_openai(body)
 
         elif model_name.startswith("azure/"):

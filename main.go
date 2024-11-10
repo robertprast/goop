@@ -1,11 +1,11 @@
 package main
 
 import (
+	"github.com/robertprast/goop/pkg/proxy"
+	"github.com/robertprast/goop/pkg/proxy/openai_schema"
 	"log"
 	"net/http"
 
-	openai_proxy "github.com/robertprast/goop/pkg/openai_llm_proxy"
-	"github.com/robertprast/goop/pkg/proxy"
 	"github.com/robertprast/goop/pkg/utils"
 	"github.com/sirupsen/logrus"
 )
@@ -23,6 +23,6 @@ func main() {
 	http.Handle("/", proxyHandler)
 	http.Handle("/openai-proxy/", openAIProxyHandler)
 
-	logrus.Info("Starting proxy server on :8080")
+	logrus.Info("Starting engine_proxy server on :8080")
 	logrus.Fatal(http.ListenAndServe("0.0.0.0:8080", nil))
 }

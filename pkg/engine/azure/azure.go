@@ -2,6 +2,7 @@ package azure
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -102,7 +103,7 @@ func (e *AzureOpenAIEngine) ModifyRequest(r *http.Request) {
 	atomic.AddInt64(&backend.Connections, 1)
 	defer atomic.AddInt64(&backend.Connections, -1)
 
-	r.URL.Path = strings.Replace(r.URL.Path, "/azure", "/openai", 1)
+	r.URL.Path = strings.Replace(r.URL.Path, "/azure", "/openai_schema", 1)
 
 	r.Host = backend.BackendURL.Host
 	r.URL.Scheme = backend.BackendURL.Scheme
@@ -119,10 +120,10 @@ func (e *AzureOpenAIEngine) ModifyRequest(r *http.Request) {
 	e.logger.Infof("Modified request for backend: %s", backend.BackendURL)
 }
 
-func (e *AzureOpenAIEngine) HandleResponseAfterFinish(resp *http.Response, body []byte) {
+func (e *AzureOpenAIEngine) ResponseCallback(resp *http.Response, body io.Reader) {
 	id, _ := resp.Request.Context().Value(engine.RequestId).(string)
 	e.logger.Infof("Response [HTTP %d] Correlation ID: %s Body Length: %d\n",
-		resp.StatusCode, id, len(body))
+		resp.StatusCode, id, resp.ContentLength)
 }
 
 func extractDeploymentRoute(path string) string {

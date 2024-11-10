@@ -3,17 +3,17 @@ package bedrock
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/robertprast/goop/pkg/proxy/openai_schema/types"
 	"net/http"
 	"time"
 
 	"github.com/robertprast/goop/pkg/engine/bedrock"
 
 	"github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream"
-	openai_types "github.com/robertprast/goop/pkg/openai_llm_proxy/types"
 	"github.com/sirupsen/logrus"
 )
 
-func buildToolConfig(reqBody openai_types.InconcomingChatCompletionRequest) *bedrock.ToolConfig {
+func buildToolConfig(reqBody openai_types.IncomingChatCompletionRequest) *bedrock.ToolConfig {
 	if len(reqBody.Tools) == 0 {
 		return nil
 	}
@@ -95,8 +95,8 @@ func transformMessages(messages []openai_types.ChatMessage) []bedrock.Message {
 	return bedrockMessages
 }
 
-// buildInferenceConfig generates a Bedrock-compatible inference configuration from the OpenAI proxy request.
-func buildInferenceConfig(reqBody openai_types.InconcomingChatCompletionRequest) bedrock.InferenceConfig {
+// buildInferenceConfig generates a Bedrock-compatible inference configuration from the OpenAI engine_proxy request.
+func buildInferenceConfig(reqBody openai_types.IncomingChatCompletionRequest) bedrock.InferenceConfig {
 	config := bedrock.InferenceConfig{}
 	if reqBody.MaxTokens != nil {
 		config.MaxTokens = *reqBody.MaxTokens
@@ -219,7 +219,7 @@ func sendOpenAIChunk(openAIChunk map[string]interface{}, w http.ResponseWriter) 
 	return nil
 }
 
-func createOpenAIResponse(bedrockBody bedrock.BedrockResponse) map[string]interface{} {
+func createOpenAIResponse(bedrockBody bedrock.Response) map[string]interface{} {
 	messageContent := ""
 	var toolCalls []map[string]interface{}
 

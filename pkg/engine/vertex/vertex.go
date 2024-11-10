@@ -3,6 +3,7 @@ package vertex
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -37,7 +38,7 @@ func NewVertexEngine(configStr string) (*VertexEngine, error) {
 	}
 
 	if !goopConfig.Enabled {
-		logrus.Info("Bedrock engine is disabled")
+		logrus.Info("Bedrock e is disabled")
 		return &VertexEngine{}, err
 	}
 
@@ -46,15 +47,15 @@ func NewVertexEngine(configStr string) (*VertexEngine, error) {
 		return nil, err
 	}
 
-	engine := &VertexEngine{
+	e := &VertexEngine{
 		backends: []*BackendConfig{
 			{
 				BackendURL: url,
 			}},
 		prefix: "/vertex",
-		logger: logrus.WithField("engine", "vertex"),
+		logger: logrus.WithField("e", "vertex"),
 	}
-	return engine, nil
+	return e, nil
 }
 
 func (e *VertexEngine) Name() string {
@@ -89,19 +90,19 @@ func (e *VertexEngine) ModifyRequest(r *http.Request) {
 	e.logger.Infof("Modified request URL: %s", r.URL.String())
 }
 
-func (e *VertexEngine) HandleResponseAfterFinish(resp *http.Response, body []byte) {
+func (e *VertexEngine) ResponseCallback(resp *http.Response, body io.Reader) {
 	id, _ := resp.Request.Context().Value(engine.RequestId).(string)
-	e.logger.Infof("Response [HTTP %d] Correlation ID: %s Body Length: %d\n",
-		resp.StatusCode, id, len(body))
+	logrus.Infof("Response [HTTP %d] Correlation ID: %s Body Length: %d\n",
+		resp.StatusCode, id, resp.ContentLength)
 }
 
 func getAccessToken() (string, error) {
 	ctx := context.Background()
-	creds, err := google.FindDefaultCredentials(ctx, "https://www.googleapis.com/auth/cloud-platform")
+	engine, err := google.FindDefaultCredentials(ctx, "https://www.googleapis.com/auth/cloud-platform")
 	if err != nil {
 		return "", err
 	}
-	tokenSource := creds.TokenSource
+	tokenSource := engine.TokenSource
 	token, err := tokenSource.Token()
 	if err != nil {
 		return "", err
