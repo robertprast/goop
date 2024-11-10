@@ -30,6 +30,3 @@ run-debug: build-debug
 run-docker: build-docker
 	@docker run --rm -p 8080:8080 -it $(DOCKER_REGISTRY)$(DOCKER_REPO):$(DOCKER_TAG) $(ARGS)
 
-run-openweb-ui:
-	cd open-webui && docker compose up --build
-	
