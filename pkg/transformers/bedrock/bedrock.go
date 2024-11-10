@@ -20,7 +20,7 @@ type BedrockProxy struct {
 
 func (e *BedrockProxy) SendChatCompletionResponse(bedrockResp *http.Response, w http.ResponseWriter, stream bool) error {
 	logrus.Infof("Sending request to bedrock")
-	if bedrockResp.Header.Get("Content-Type") == "application/vnd.amazon.eventstream" {
+	if bedrockResp.Header.Get("Content-Type") == "application/vnd.amazon.eventstream" || stream {
 		return e.handleStreamingResponse(bedrockResp, w)
 	}
 	return e.handleNonStreamingResponse(bedrockResp, w)
@@ -28,11 +28,9 @@ func (e *BedrockProxy) SendChatCompletionResponse(bedrockResp *http.Response, w 
 
 func (e *BedrockProxy) TransformChatCompletionRequest(reqBody openai_types.IncomingChatCompletionRequest) ([]byte, error) {
 
-	//logrus.Infof("Request params: %v", reqBody)
-
-	// log the requbody as a pretty json string for debugging
-	//reqBodyStr, _ := json.MarshalIndent(reqBody, "", "  ")
-	//logrus.Infof("Request body: %s", reqBodyStr)
+	// log the request as a pretty json string for debugging
+	reqBodyStr, _ := json.MarshalIndent(reqBody, "", "  ")
+	logrus.Debugf("Raw Request body: %s", reqBodyStr)
 
 	bedrockRequest := bedrock.Request{
 		Messages:        transformMessages(reqBody.Messages),
@@ -49,7 +47,7 @@ func (e *BedrockProxy) TransformChatCompletionRequest(reqBody openai_types.Incom
 
 	// log the bedrock request as a pretty json string for debugging
 	bedrockRequestStr, _ := json.MarshalIndent(bedrockRequest, "", "  ")
-	logrus.Infof("Bedrock request: %s", bedrockRequestStr)
+	logrus.Debugf("Bedrock request: %s", bedrockRequestStr)
 
 	return json.Marshal(bedrockRequest)
 }
@@ -65,9 +63,7 @@ func (e *BedrockProxy) handleNonStreamingResponse(bedrockResp *http.Response, w 
 		return err
 	}
 
-	logrus.Infof("Bedrock resp %v", bedrockBody)
-	// logrus.Infof("Raw response from bedrock: %v", bedrockResp.Body)
-	// print raw bedrcokResp body
+	logrus.Debugf("Bedrock resp %v", bedrockBody)
 
 	openAIResp := createOpenAIResponse(bedrockBody)
 	return sendOpenAIResponse(openAIResp, w)
@@ -88,8 +84,8 @@ func (e *BedrockProxy) handleStreamingResponse(bedrockResp *http.Response, w htt
 			return err
 		}
 
-		logrus.Infof("Received event: %v", event)
-		logrus.Infof("Event payload: %s", string(event.Payload))
+		logrus.Infof("Received streaming event event: %v", event)
+		logrus.Debugf("Event payload: %s", string(event.Payload))
 
 		if err := processStreamingEvent(event, w); err != nil {
 			return err
@@ -99,11 +95,9 @@ func (e *BedrockProxy) handleStreamingResponse(bedrockResp *http.Response, w htt
 	return nil
 }
 
-func (e *BedrockProxy) HandleChatCompletionRequest(ctx context.Context, transformedBody []byte, stream bool) (*http.Response, error) {
+func (e *BedrockProxy) HandleChatCompletionRequest(ctx context.Context, model string, stream bool, transformedBody []byte) (*http.Response, error) {
 
-	endpoint := fmt.Sprintf("%s/model/%s/%s", e.Backend.String(), "us.anthropic.claude-3-haiku-20240307-v1:0", getEndpointSuffix(stream))
-
-	//logrus.Infof("Request body: %s", transformedBody)
+	endpoint := fmt.Sprintf("%s/model/%s/%s", e.Backend.String(), model, getEndpointSuffix(stream))
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(transformedBody))
 	if err != nil {

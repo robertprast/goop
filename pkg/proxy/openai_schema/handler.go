@@ -18,7 +18,7 @@ import (
 var _ OpenAIProxyEngine = (*bedrock_proxy.BedrockProxy)(nil)
 
 type OpenAIProxyEngine interface {
-	HandleChatCompletionRequest(ctx context.Context, transformedBody []byte, stream bool) (*http.Response, error)
+	HandleChatCompletionRequest(ctx context.Context, model string, stream bool, transformedBody []byte) (*http.Response, error)
 	SendChatCompletionResponse(bedrockResp *http.Response, w http.ResponseWriter, stream bool) error
 	TransformChatCompletionRequest(reqBody openai_types.IncomingChatCompletionRequest) ([]byte, error)
 }
@@ -148,12 +148,6 @@ func (h *OpenAIProxyHandler) handleChatCompletions(w http.ResponseWriter, r *htt
 		http.Error(w, "Error selecting engine", http.StatusInternalServerError)
 		return
 	}
-	logrus.Infof("HI ")
-
-	logrus.Infof("Stream: %v", reqBody)
-
-	logrus.Infof("Stream: %v", stream)
-
 	transformedBody, err := proxyEngine.TransformChatCompletionRequest(reqBody)
 	if err != nil {
 		logrus.Infof("Error transforming request: %v", err)
@@ -162,7 +156,7 @@ func (h *OpenAIProxyHandler) handleChatCompletions(w http.ResponseWriter, r *htt
 	}
 	logrus.Debugf("Transformed request: %v", string(transformedBody))
 
-	resp, err := proxyEngine.HandleChatCompletionRequest(r.Context(), transformedBody, stream)
+	resp, err := proxyEngine.HandleChatCompletionRequest(r.Context(), reqBody.Model, stream, transformedBody)
 	if err != nil {
 		logrus.Infof("Error processing request %v", err)
 		http.Error(w, fmt.Sprintf("Error processing request: %v", err), http.StatusInternalServerError)
