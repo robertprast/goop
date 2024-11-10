@@ -28,11 +28,11 @@ func (e *BedrockProxy) SendChatCompletionResponse(bedrockResp *http.Response, w 
 
 func (e *BedrockProxy) TransformChatCompletionRequest(reqBody openai_types.IncomingChatCompletionRequest) ([]byte, error) {
 
-	logrus.Infof("Request params: %v", reqBody)
+	//logrus.Infof("Request params: %v", reqBody)
 
 	// log the requbody as a pretty json string for debugging
-	reqBodyStr, _ := json.MarshalIndent(reqBody, "", "  ")
-	logrus.Infof("Request body: %s", reqBodyStr)
+	//reqBodyStr, _ := json.MarshalIndent(reqBody, "", "  ")
+	//logrus.Infof("Request body: %s", reqBodyStr)
 
 	bedrockRequest := bedrock.Request{
 		Messages:        transformMessages(reqBody.Messages),
@@ -103,7 +103,7 @@ func (e *BedrockProxy) HandleChatCompletionRequest(ctx context.Context, transfor
 
 	endpoint := fmt.Sprintf("%s/model/%s/%s", e.Backend.String(), "us.anthropic.claude-3-haiku-20240307-v1:0", getEndpointSuffix(stream))
 
-	logrus.Infof("Request body: %s", transformedBody)
+	//logrus.Infof("Request body: %s", transformedBody)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(transformedBody))
 	if err != nil {

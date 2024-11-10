@@ -1,9 +1,11 @@
 package bedrock
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"github.com/robertprast/goop/pkg/proxy/openai_schema/types"
+	"io"
 	"net/http"
 	"time"
 
@@ -64,28 +66,38 @@ func buildToolConfig(reqBody openai_types.IncomingChatCompletionRequest) *bedroc
 func transformMessages(messages []openai_types.ChatMessage) []bedrock.Message {
 	bedrockMessages := make([]bedrock.Message, len(messages))
 	for i, message := range messages {
-		contentBlocks := []bedrock.ContentBlock{}
+		var contentBlocks []bedrock.ContentBlock
 
 		if message.Content != nil {
 			contentBlocks = append(contentBlocks, bedrock.ContentBlock{
-				Type: "text",
 				Text: *message.Content,
 			})
 		}
 
-		// <TODO> Fix ContentBlock types
-		// if message.Image != nil {
-		// 	contentBlocks = append(contentBlocks, ContentBlock{
-		// 		Type: "image",
-		// 		URL:  message.Image.URL,
-		// 		Caption: func() string {
-		// 			if message.Image.Caption != nil {
-		// 				return *message.Image.Caption
-		// 			}
-		// 			return ""
-		// 		}(),
-		// 	})
-		// }
+		if message.Type != nil && *message.Type == "image_url" {
+			resp, err := http.Get(message.ImageURL.URL)
+			if err != nil {
+				panic(err)
+			}
+			defer resp.Body.Close()
+
+			imageBytes, err := io.ReadAll(resp.Body)
+			if err != nil {
+				panic(err)
+			}
+			var textContent string
+			if imageBytes != nil {
+				textContent = base64.StdEncoding.EncodeToString(imageBytes)
+			}
+			contentBlocks = append(contentBlocks, bedrock.ContentBlock{
+				Image: &bedrock.Image{
+					Format: "jpeg",
+					Source: bedrock.ImageSource{
+						Bytes: textContent,
+					},
+				},
+			})
+		}
 
 		bedrockMessages[i] = bedrock.Message{
 			Role:    message.Role,

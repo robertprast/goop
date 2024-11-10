@@ -3,6 +3,8 @@ package openai_types
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
+	"net/url"
 )
 
 type IncomingChatCompletionRequest struct {
@@ -17,18 +19,19 @@ type IncomingChatCompletionRequest struct {
 	PresencePenalty  *float64       `json:"presence_penalty,omitempty"`  // Penalty for new topics.
 	FrequencyPenalty *float64       `json:"frequency_penalty,omitempty"` // Penalty for repeated phrases.
 	User             *string        `json:"user,omitempty"`              // User identifier for personalization.
-	Tools            []FunctionTool `json:"tools,omitempty"`
-	ToolChoice       interface{}    `json:"tool_choice,omitempty"` // Controls which (if any) tool is called by the model.
+	Tools            []FunctionTool `json:"tools,omitempty"`             // Tools available for the model.
+	ToolChoice       interface{}    `json:"tool_choice,omitempty"`       // Controls which (if any) tool is called by the model.
 }
 
 type ChatMessage struct {
-	Role    string     `json:"role"`              // The role of the message sender ("system", "user", "assistant").
-	Content *string    `json:"content,omitempty"` // The text content of the message (optional if image is present).
-	Image   *ChatImage `json:"image,omitempty"`   // An image associated with the message (optional if content is present).
-	Name    *string    `json:"name,omitempty"`    // Optional name of the user.
+	Role     string        `json:"role"`                // The role of the message sender ("system", "user", "assistant").
+	Type     *string       `json:"type,omitempty"`      // Type of the message (e.g., "image_url").
+	Content  *string       `json:"content,omitempty"`   // The text content of the message (optional if image is present).
+	ImageURL *ChatImageURL `json:"image_url,omitempty"` // An image associated with the message (optional if content is present).
+	Name     *string       `json:"name,omitempty"`      // Optional name of the user.
 }
 
-type ChatImage struct {
+type ChatImageURL struct {
 	URL     string  `json:"url"`                // URL pointing to the image location.
 	Caption *string `json:"caption,omitempty"`  // Optional caption for the image.
 	AltText *string `json:"alt_text,omitempty"` // Optional alt text describing the image.
@@ -75,8 +78,7 @@ type ToolName struct {
 }
 
 // UnmarshalJSON Custom UnmarshalJSON for IncomingChatCompletionRequest
-// to validate that the Messages field is not nil and deal
-// with Alias struct
+// to validate that the Messages field is not nil and perform additional validations.
 func (r *IncomingChatCompletionRequest) UnmarshalJSON(data []byte) error {
 	type Alias IncomingChatCompletionRequest
 	aux := &struct {
@@ -85,6 +87,7 @@ func (r *IncomingChatCompletionRequest) UnmarshalJSON(data []byte) error {
 		Alias: (*Alias)(r),
 	}
 
+	// Unmarshal into the auxiliary struct
 	if err := json.Unmarshal(data, aux); err != nil {
 		return err
 	}
@@ -92,6 +95,49 @@ func (r *IncomingChatCompletionRequest) UnmarshalJSON(data []byte) error {
 	// Validate that Messages is not nil
 	if r.Messages == nil {
 		return errors.New("'messages' field must not be null")
+	}
+
+	// Validate that Messages is not empty
+	if len(r.Messages) == 0 {
+		return errors.New("'messages' field must contain at least one message")
+	}
+
+	// Validate each ChatMessage
+	for i, msg := range r.Messages {
+		// Validate Role
+		if msg.Role == "" {
+			return fmt.Errorf("message at index %d is missing the 'role' field", i)
+		}
+		validRoles := map[string]bool{
+			"system":    true,
+			"user":      true,
+			"assistant": true,
+			// Add other valid roles if any
+		}
+		if !validRoles[msg.Role] {
+			return fmt.Errorf("message at index %d has an invalid 'role': %s", i, msg.Role)
+		}
+
+		// Validate based on Type
+		if msg.Type != nil && *msg.Type == "image_url" {
+			// For image messages, ImageURL must not be nil
+			if msg.ImageURL == nil {
+				return fmt.Errorf("message at index %d of type 'image_url' must have 'image_url' field", i)
+			}
+			// Validate URL is not empty
+			if msg.ImageURL.URL == "" {
+				return fmt.Errorf("message at index %d has an empty 'url' in 'image_url'", i)
+			}
+			// Validate URL format
+			if _, err := url.ParseRequestURI(msg.ImageURL.URL); err != nil {
+				return fmt.Errorf("message at index %d has an invalid URL in 'image_url': %v", i, err)
+			}
+		} else {
+			// For non-image messages, Content must not be nil or empty
+			if msg.Content == nil || *msg.Content == "" {
+				return fmt.Errorf("message at index %d must have 'content' field when 'type' is not 'image_url'", i)
+			}
+		}
 	}
 
 	return nil

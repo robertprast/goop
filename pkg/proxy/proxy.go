@@ -86,6 +86,7 @@ func engineMiddleware(config utils.Config) middleware {
 				return
 			}
 
+			logrus.Infof("Selected engine: %s", eng.Name())
 			ctx := engine.ContextWithEngine(r.Context(), eng)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
