@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/robertprast/goop/pkg/proxy/openai_schema/types"
-	bedrock_proxy "github.com/robertprast/goop/pkg/transformers/bedrock"
+	bedrockproxy "github.com/robertprast/goop/pkg/transformers/bedrock"
 	"io"
 	"net/http"
 	"strings"
@@ -15,7 +15,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-var _ OpenAIProxyEngine = (*bedrock_proxy.BedrockProxy)(nil)
+var _ OpenAIProxyEngine = (*bedrockproxy.BedrockProxy)(nil)
 
 type OpenAIProxyEngine interface {
 	HandleChatCompletionRequest(ctx context.Context, model string, stream bool, transformedBody []byte) (*http.Response, error)
@@ -120,7 +120,7 @@ func (h *OpenAIProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}(r.Body)
 
 			// log the body for debugging
-			logrus.Infof("Request body raw: %s", string(body))
+			logrus.Debugf("Request body raw: %s", string(body))
 
 			// Now unmarshal the request body into the struct
 			var reqBody openai_types.IncomingChatCompletionRequest
@@ -130,7 +130,7 @@ func (h *OpenAIProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
-			logrus.Infof("Request body after transform: %v", reqBody)
+			logrus.Debugf("Request body after transform: %v", reqBody)
 			h.handleChatCompletions(w, r, reqBody, reqBody.Stream)
 		} else {
 			http.Error(w, "Unsupported method", http.StatusMethodNotAllowed)
@@ -179,7 +179,7 @@ func (h *OpenAIProxyHandler) selectEngine(model string) (OpenAIProxyEngine, erro
 			logrus.Errorf("Error creating bedrock engine: %v", err)
 			return nil, err
 		}
-		return &bedrock_proxy.BedrockProxy{
+		return &bedrockproxy.BedrockProxy{
 			BedrockEngine: bedrockEngine,
 		}, nil
 	case strings.HasPrefix(model, "vertex/"):

@@ -8,6 +8,7 @@ import (
 	"github.com/robertprast/goop/pkg/proxy/openai_schema/types"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream"
 	"github.com/robertprast/goop/pkg/engine/bedrock"
@@ -19,19 +20,13 @@ type BedrockProxy struct {
 }
 
 func (e *BedrockProxy) SendChatCompletionResponse(bedrockResp *http.Response, w http.ResponseWriter, stream bool) error {
-	logrus.Infof("Sending request to bedrock")
-	if bedrockResp.Header.Get("Content-Type") == "application/vnd.amazon.eventstream" || stream {
+	if bedrockResp.Header.Get("Content-Type") == "application/vnd.amazon.eventstream" {
 		return e.handleStreamingResponse(bedrockResp, w)
 	}
 	return e.handleNonStreamingResponse(bedrockResp, w)
 }
 
 func (e *BedrockProxy) TransformChatCompletionRequest(reqBody openai_types.IncomingChatCompletionRequest) ([]byte, error) {
-
-	// log the request as a pretty json string for debugging
-	reqBodyStr, _ := json.MarshalIndent(reqBody, "", "  ")
-	logrus.Debugf("Raw Request body: %s", reqBodyStr)
-
 	bedrockRequest := bedrock.Request{
 		Messages:        transformMessages(reqBody.Messages),
 		InferenceConfig: buildInferenceConfig(reqBody),
@@ -44,10 +39,6 @@ func (e *BedrockProxy) TransformChatCompletionRequest(reqBody openai_types.Incom
 	if toolConfig != nil && len(toolConfig.Tools) > 0 {
 		bedrockRequest.ToolConfig = toolConfig
 	}
-
-	// log the bedrock request as a pretty json string for debugging
-	bedrockRequestStr, _ := json.MarshalIndent(bedrockRequest, "", "  ")
-	logrus.Debugf("Bedrock request: %s", bedrockRequestStr)
 
 	return json.Marshal(bedrockRequest)
 }
@@ -62,9 +53,6 @@ func (e *BedrockProxy) handleNonStreamingResponse(bedrockResp *http.Response, w 
 		logrus.Infof("Error decoding Bedrock response: %v", err)
 		return err
 	}
-
-	logrus.Debugf("Bedrock resp %v", bedrockBody)
-
 	openAIResp := createOpenAIResponse(bedrockBody)
 	return sendOpenAIResponse(openAIResp, w)
 }
@@ -96,8 +84,13 @@ func (e *BedrockProxy) handleStreamingResponse(bedrockResp *http.Response, w htt
 }
 
 func (e *BedrockProxy) HandleChatCompletionRequest(ctx context.Context, model string, stream bool, transformedBody []byte) (*http.Response, error) {
+	model, found := strings.CutPrefix(model, "bedrock/")
+	if !found {
+		return nil, fmt.Errorf("Error parsing model: %s", model)
+	}
 
 	endpoint := fmt.Sprintf("%s/model/%s/%s", e.Backend.String(), model, getEndpointSuffix(stream))
+	logrus.Infof("Bedrock endpoint: %s", endpoint)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(transformedBody))
 	if err != nil {
