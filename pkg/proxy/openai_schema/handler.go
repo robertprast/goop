@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/robertprast/goop/pkg/audit"
 	"io"
 	"net/http"
 	"strings"
@@ -17,10 +18,8 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// Middleware defines the signature for middleware functions
 type Middleware func(http.Handler) http.Handler
 
-// Model represents an OpenAI model
 type Model struct {
 	ID      string `json:"id"`
 	Name    string `json:"name"`
@@ -29,7 +28,6 @@ type Model struct {
 	OwnedBy string `json:"owned_by"`
 }
 
-// Response represents the response structure for models endpoint
 type Response struct {
 	Object string  `json:"object"`
 	Data   []Model `json:"data"`
@@ -57,12 +55,7 @@ func NewHandler(config *utils.Config, logger *logrus.Logger, metrics *proxy.Open
 		metrics: metrics,
 	}
 	var finalHandler http.Handler = http.HandlerFunc(handler.ServeHTTP)
-
-	// Chain middlewares: logging -> telemetry (if any additional middleware is needed)
-	// Currently, logging and telemetry are handled within the handler methods
-	// You can add more middlewares here if necessary
-	finalHandler = chainMiddlewares(finalHandler, handler.loggingMiddleware)
-
+	finalHandler = chainMiddlewares(finalHandler, handler.auditMiddleware, handler.loggingMiddleware)
 	return finalHandler
 }
 
@@ -74,13 +67,27 @@ func chainMiddlewares(finalHandler http.Handler, middlewares ...Middleware) http
 	return finalHandler
 }
 
+// auditMiddleware audits each request and records errors if any
+func (h *OpenAIProxyHandler) auditMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h.logger.Infof("Auditing request: %s %s", r.Method, r.URL.Path)
+		err := audit.Request(r)
+		if err != nil {
+			h.metrics.ErrorsTotal.WithLabelValues(r.Method, r.URL.Path, "audit_failed").Inc()
+			h.logger.Errorf("Audit failed: %v", err)
+			http.Error(w, "Audit failed", http.StatusInternalServerError)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 // loggingMiddleware logs each incoming HTTP request and records metrics
 func (h *OpenAIProxyHandler) loggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		startTime := time.Now()
 		h.metrics.RequestsTotal.WithLabelValues(r.Method, r.URL.Path).Inc()
 
-		// Capture the status code
 		rec := &proxy.StatusRecorder{ResponseWriter: w, StatusCode: http.StatusOK}
 		next.ServeHTTP(rec, r)
 

@@ -31,10 +31,7 @@ func NewProxyHandler(config *utils.Config, logger *logrus.Logger, metrics *Metri
 		Metrics: metrics,
 	}
 	var finalHandler http.Handler = http.HandlerFunc(handler.reverseProxy)
-
-	// Chain middlewares: audit -> engine -> logging
-	finalHandler = chainMiddlewares(finalHandler, handler.auditMiddleware, handler.engineMiddleware, handler.logMiddleware)
-
+	finalHandler = chainMiddlewares(finalHandler, handler.auditMiddleware, handler.engineMiddleware, handler.loggingMiddleware)
 	return finalHandler
 }
 
@@ -46,22 +43,18 @@ func chainMiddlewares(finalHandler http.Handler, middlewares ...Middleware) http
 	return finalHandler
 }
 
-// logMiddleware logs each incoming HTTP request and records metrics
-func (h *ProxyHandler) logMiddleware(next http.Handler) http.Handler {
+// loggingMiddleware logs each incoming HTTP request and records metrics
+func (h *ProxyHandler) loggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		startTime := time.Now()
-		// Increment request count
 		h.Metrics.RequestsTotal.WithLabelValues(r.Method, r.URL.Path).Inc()
 
-		// Capture the status code
 		rec := &StatusRecorder{ResponseWriter: w, StatusCode: http.StatusOK}
 		next.ServeHTTP(rec, r)
 
 		duration := time.Since(startTime).Seconds()
-		// Observe request duration
 		h.Metrics.RequestDuration.WithLabelValues(r.Method, r.URL.Path).Observe(duration)
 
-		// Log the request
 		h.Logger.Infof("Method: %s, Path: %s, Status: %d, Duration: %.4f seconds", r.Method, r.URL.Path, rec.StatusCode, duration)
 	})
 }
@@ -70,13 +63,13 @@ func (h *ProxyHandler) logMiddleware(next http.Handler) http.Handler {
 func (h *ProxyHandler) auditMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h.Logger.Infof("Auditing request: %s %s", r.Method, r.URL.Path)
-		audit.Request(r)
-		//if err != nil {
-		//	h.Metrics.ErrorsTotal.WithLabelValues(r.Method, r.URL.Path, "audit_failed").Inc()
-		//	h.Logger.Errorf("Audit failed: %v", err)
-		//	http.Error(w, "Audit failed", http.StatusInternalServerError)
-		//	return
-		//}
+		err := audit.Request(r)
+		if err != nil {
+			h.Metrics.ErrorsTotal.WithLabelValues(r.Method, r.URL.Path, "audit_failed").Inc()
+			h.Logger.Errorf("Audit failed: %v", err)
+			http.Error(w, "Audit failed", http.StatusInternalServerError)
+			return
+		}
 		next.ServeHTTP(w, r)
 	})
 }
@@ -154,7 +147,6 @@ func (h *ProxyHandler) reverseProxy(w http.ResponseWriter, r *http.Request) {
 		Transport:      http.DefaultTransport,
 	}
 
-	// Check if the ResponseWriter supports Flusher
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		h.Metrics.ErrorsTotal.WithLabelValues(r.Method, r.URL.Path, "streaming_not_supported").Inc()

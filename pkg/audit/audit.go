@@ -3,6 +3,7 @@ package audit
 import (
 	"bufio"
 	"bytes"
+	"fmt"
 	"io"
 	"net/http"
 
@@ -32,7 +33,7 @@ func drainBody(b io.ReadCloser) (r1, r2 io.ReadCloser, err error) {
 
 // Request Audit request will drain the request body and log the request
 // method, URL, headers, and body.
-func Request(r *http.Request) {
+func Request(r *http.Request) error {
 	body1, body2, err := drainBody(r.Body)
 	defer func(body2 io.ReadCloser) {
 		err := body2.Close()
@@ -42,18 +43,19 @@ func Request(r *http.Request) {
 	}(body2)
 	if err != nil {
 		logrus.Errorf("Error draining body: %v", err)
-		return
+		return fmt.Errorf("Error draining body: %v", err)
 	}
 	r.Body = body1
 
 	rawBody, err := io.ReadAll(body2)
 	if err != nil {
 		logrus.Errorf("Error reading body: %v", err)
-		return
+		return fmt.Errorf("Error reading body: %v", err)
 	}
 
 	logrus.Debugf("Request: %s %s\nHeaders: %v\nBody: len(%d)\n Raw Body: %v\n",
 		r.Method, r.URL.String(), r.Header, r.ContentLength, string(rawBody))
+	return nil
 }
 
 // Response Audit response will split the response body into two streams

@@ -46,9 +46,7 @@ func main() {
 
 // InitLogger sets up the Logrus logger
 func (app *App) InitLogger() {
-	app.Logger.SetFormatter(&logrus.TextFormatter{
-		FullTimestamp: true,
-	})
+	app.Logger.SetFormatter(&logrus.TextFormatter{})
 	app.Logger.SetLevel(logrus.InfoLevel)
 }
 
@@ -70,15 +68,12 @@ func (app *App) InitHealth() {
 func (app *App) InitRouter() {
 	mux := http.NewServeMux()
 
-	// Initialize proxy handlers with dependencies
 	proxyHandler := proxy.NewProxyHandler(app.Config, app.Logger, app.Metrics)
 	openAIProxyHandler := openai_proxy.NewHandler(app.Config, app.Logger, app.OpenProxyMetrics)
 
-	// Define existing routes
 	mux.Handle("/", proxyHandler)
 	mux.Handle("/openai-proxy/", openAIProxyHandler)
 
-	// Define additional routes
 	mux.HandleFunc("/healthz", app.healthHandler)
 	mux.Handle("/metrics", promhttp.Handler())
 
@@ -119,7 +114,6 @@ func (app *App) StartServer() {
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 
-	// Start the server in a goroutine
 	go func() {
 		app.Logger.Info("Starting engine_proxy server on :8080")
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
@@ -134,12 +128,9 @@ func (app *App) StartServer() {
 	atomic.StoreInt32(&app.Healthy, 0)
 
 	// Create a deadline to wait for graceful shutdown
+	app.Logger.Info("Shutting down server...")
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-
-	app.Logger.Info("Shutting down server...")
-
-	// Attempt graceful shutdown
 	if err := srv.Shutdown(ctx); err != nil {
 		app.Logger.Fatalf("Server Shutdown Failed:%+v", err)
 	}
