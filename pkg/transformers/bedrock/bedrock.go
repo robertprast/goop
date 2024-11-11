@@ -23,7 +23,7 @@ func (e *BedrockProxy) SendChatCompletionResponse(bedrockResp *http.Response, w 
 	if bedrockResp.Header.Get("Content-Type") == "application/vnd.amazon.eventstream" {
 		return e.handleStreamingResponse(bedrockResp, w)
 	}
-	return e.handleNonStreamingResponse(bedrockResp, w)
+	return e.handleResponse(bedrockResp, w)
 }
 
 func (e *BedrockProxy) TransformChatCompletionRequest(reqBody openai_types.IncomingChatCompletionRequest) ([]byte, error) {
@@ -43,10 +43,16 @@ func (e *BedrockProxy) TransformChatCompletionRequest(reqBody openai_types.Incom
 	return json.Marshal(bedrockRequest)
 }
 
-func (e *BedrockProxy) handleNonStreamingResponse(bedrockResp *http.Response, w http.ResponseWriter) error {
+func (e *BedrockProxy) handleResponse(bedrockResp *http.Response, w http.ResponseWriter) error {
 	logrus.Infof("Sending non-streaming response back")
-	defer bedrockResp.Body.Close()
 	logrus.Infof("Bedrock response status: %s", bedrockResp.Status)
+
+	defer func(Body io.ReadCloser) {
+		err := Body.Close()
+		if err != nil {
+
+		}
+	}(bedrockResp.Body)
 
 	var bedrockBody bedrock.Response
 	if err := json.NewDecoder(bedrockResp.Body).Decode(&bedrockBody); err != nil {
@@ -59,7 +65,12 @@ func (e *BedrockProxy) handleNonStreamingResponse(bedrockResp *http.Response, w 
 
 func (e *BedrockProxy) handleStreamingResponse(bedrockResp *http.Response, w http.ResponseWriter) error {
 	logrus.Info("Sending streaming response back")
-	defer bedrockResp.Body.Close()
+	defer func(Body io.ReadCloser) {
+		err := Body.Close()
+		if err != nil {
+
+		}
+	}(bedrockResp.Body)
 
 	decoder := eventstream.NewDecoder()
 	var payloadBuf []byte
@@ -86,7 +97,7 @@ func (e *BedrockProxy) handleStreamingResponse(bedrockResp *http.Response, w htt
 func (e *BedrockProxy) HandleChatCompletionRequest(ctx context.Context, model string, stream bool, transformedBody []byte) (*http.Response, error) {
 	model, found := strings.CutPrefix(model, "bedrock/")
 	if !found {
-		return nil, fmt.Errorf("Error parsing model: %s", model)
+		return nil, fmt.Errorf("error parsing model: %s", model)
 	}
 
 	endpoint := fmt.Sprintf("%s/model/%s/%s", e.Backend.String(), model, getEndpointSuffix(stream))

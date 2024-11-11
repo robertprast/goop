@@ -43,14 +43,14 @@ func Request(r *http.Request) error {
 	}(body2)
 	if err != nil {
 		logrus.Errorf("Error draining body: %v", err)
-		return fmt.Errorf("Error draining body: %v", err)
+		return fmt.Errorf("error draining body: %v", err)
 	}
 	r.Body = body1
 
 	rawBody, err := io.ReadAll(body2)
 	if err != nil {
 		logrus.Errorf("Error reading body: %v", err)
-		return fmt.Errorf("Error reading body: %v", err)
+		return fmt.Errorf("error reading body: %v", err)
 	}
 
 	logrus.Debugf("Request: %s %s\nHeaders: %v\nBody: len(%d)\n Raw Body: %v\n",
