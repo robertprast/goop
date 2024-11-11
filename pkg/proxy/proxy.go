@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"strings"
+	"time"
 
 	"github.com/robertprast/goop/pkg/audit"
 	"github.com/robertprast/goop/pkg/engine"
@@ -15,87 +16,132 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-type middleware func(http.Handler) http.Handler
-
-func NewProxyHandler(config utils.Config) http.Handler {
-	var handler http.Handler = http.HandlerFunc(reverseProxy)
-	handler = chainMiddlewares(handler, auditMiddleware, engineMiddleware(config), logMiddleware)
-	return handler
+// ProxyHandler holds dependencies for the proxy
+type ProxyHandler struct {
+	Config  *utils.Config
+	Logger  *logrus.Logger
+	Metrics *Metrics
 }
 
-func chainMiddlewares(finalHandler http.Handler, middlewares ...middleware) http.Handler {
+// NewProxyHandler creates a new proxy handler with logging and telemetry
+func NewProxyHandler(config *utils.Config, logger *logrus.Logger, metrics *Metrics) http.Handler {
+	handler := &ProxyHandler{
+		Config:  config,
+		Logger:  logger,
+		Metrics: metrics,
+	}
+	var finalHandler http.Handler = http.HandlerFunc(handler.reverseProxy)
+
+	// Chain middlewares: audit -> engine -> logging
+	finalHandler = chainMiddlewares(finalHandler, handler.auditMiddleware, handler.engineMiddleware, handler.logMiddleware)
+
+	return finalHandler
+}
+
+// chainMiddlewares applies the given middlewares to the final handler
+func chainMiddlewares(finalHandler http.Handler, middlewares ...Middleware) http.Handler {
 	for i := len(middlewares) - 1; i >= 0; i-- {
 		finalHandler = middlewares[i](finalHandler)
 	}
 	return finalHandler
 }
 
-func logMiddleware(next http.Handler) http.Handler {
+// logMiddleware logs each incoming HTTP request and records metrics
+func (h *ProxyHandler) logMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		id, _ := r.Context().Value(engine.RequestId).(string)
-		logrus.Infof("Request Correlation ID: %s %s", id, r.Method)
-		next.ServeHTTP(w, r)
+		startTime := time.Now()
+		// Increment request count
+		h.Metrics.RequestsTotal.WithLabelValues(r.Method, r.URL.Path).Inc()
+
+		// Capture the status code
+		rec := &StatusRecorder{ResponseWriter: w, StatusCode: http.StatusOK}
+		next.ServeHTTP(rec, r)
+
+		duration := time.Since(startTime).Seconds()
+		// Observe request duration
+		h.Metrics.RequestDuration.WithLabelValues(r.Method, r.URL.Path).Observe(duration)
+
+		// Log the request
+		h.Logger.Infof("Method: %s, Path: %s, Status: %d, Duration: %.4f seconds", r.Method, r.URL.Path, rec.StatusCode, duration)
 	})
 }
 
-func auditMiddleware(next http.Handler) http.Handler {
+// auditMiddleware audits each request and records errors if any
+func (h *ProxyHandler) auditMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		logrus.Infof("Auditing request: %s %s", r.Method, r.URL.Path)
+		h.Logger.Infof("Auditing request: %s %s", r.Method, r.URL.Path)
 		audit.Request(r)
+		//if err != nil {
+		//	h.Metrics.ErrorsTotal.WithLabelValues(r.Method, r.URL.Path, "audit_failed").Inc()
+		//	h.Logger.Errorf("Audit failed: %v", err)
+		//	http.Error(w, "Audit failed", http.StatusInternalServerError)
+		//	return
+		//}
 		next.ServeHTTP(w, r)
 	})
 }
 
-func engineMiddleware(config utils.Config) middleware {
-	return func(next http.Handler) http.Handler {
+// engineMiddleware selects the appropriate engine based on the request path and records errors
+func (h *ProxyHandler) engineMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		segments := strings.SplitN(r.URL.Path, "/", 3)
+		if len(segments) < 2 {
+			h.Metrics.ErrorsTotal.WithLabelValues(r.Method, r.URL.Path, "invalid_path").Inc()
+			http.Error(w, "Invalid path", http.StatusBadRequest)
+			return
+		}
+		firstPathSegment := segments[1]
+		h.Logger.Infof("First path segment: %s", firstPathSegment)
 
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			firstPathSegment := strings.Split(r.URL.Path, "/")[1]
-			logrus.Infof("First path segment: %s", firstPathSegment)
+		// Check if config has engine
+		engineConfig, ok := h.Config.Engines[firstPathSegment]
+		if !ok {
+			h.Metrics.ErrorsTotal.WithLabelValues(r.Method, r.URL.Path, "engine_not_found").Inc()
+			http.Error(w, "Engine not found", http.StatusNotFound)
+			return
+		}
 
-			// check if config has engine
-			if _, ok := config.Engines[firstPathSegment]; !ok {
-				http.Error(w, "Engine not found", http.StatusNotFound)
-				return
-			}
+		var eng engine.Engine
+		var err error
+		switch firstPathSegment {
+		case "openai":
+			eng, err = openai.NewOpenAIEngineWithConfig(engineConfig)
+		case "azure":
+			eng, err = azure.NewAzureOpenAIEngineWithConfig(engineConfig)
+		case "bedrock":
+			eng, err = bedrock.NewBedrockEngine(engineConfig)
+		case "vertex":
+			eng, err = vertex.NewVertexEngine(engineConfig)
+		default:
+			h.Metrics.ErrorsTotal.WithLabelValues(r.Method, r.URL.Path, "engine_not_found").Inc()
+			http.Error(w, "Engine not found", http.StatusNotFound)
+			return
+		}
 
-			var eng engine.Engine
-			var err error
-			switch firstPathSegment {
-			case "openai":
-				eng, err = openai.NewOpenAIEngineWithConfig(config.Engines["openai"])
-			case "azure":
-				eng, err = azure.NewAzureOpenAIEngineWithConfig(config.Engines["azure"])
-			case "bedrock":
-				eng, err = bedrock.NewBedrockEngine(config.Engines["bedrock"])
-			case "vertex":
-				eng, err = vertex.NewVertexEngine(config.Engines["vertex"])
-			default:
-				http.Error(w, "Engine not found", http.StatusNotFound)
-				return
-			}
+		if err != nil {
+			h.Metrics.ErrorsTotal.WithLabelValues(r.Method, r.URL.Path, "engine_init_failed").Inc()
+			h.Logger.Errorf("Error selecting engine: %v", err)
+			http.Error(w, "Error selecting engine", http.StatusInternalServerError)
+			return
+		}
 
-			if err != nil {
-				logrus.Errorf("Error selecting engine: %v", err)
-				http.Error(w, "Error selecting engine", http.StatusNotFound)
-				return
-			}
+		if !eng.IsAllowedPath(strings.TrimPrefix(r.URL.Path, eng.Name())) {
+			h.Metrics.ErrorsTotal.WithLabelValues(r.Method, r.URL.Path, "forbidden").Inc()
+			http.Error(w, "Forbidden", http.StatusForbidden)
+			return
+		}
 
-			if !eng.IsAllowedPath(strings.TrimPrefix(r.URL.Path, eng.Name())) {
-				http.Error(w, "Forbidden", http.StatusForbidden)
-				return
-			}
-
-			logrus.Infof("Selected engine: %s", eng.Name())
-			ctx := engine.ContextWithEngine(r.Context(), eng)
-			next.ServeHTTP(w, r.WithContext(ctx))
-		})
-	}
+		h.Logger.Infof("Selected engine: %s", eng.Name())
+		ctx := engine.ContextWithEngine(r.Context(), eng)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
 }
 
-func reverseProxy(w http.ResponseWriter, r *http.Request) {
+// reverseProxy handles the actual proxying of requests
+func (h *ProxyHandler) reverseProxy(w http.ResponseWriter, r *http.Request) {
 	eng := engine.FromContext(r.Context())
 	if eng == nil {
+		h.Metrics.ErrorsTotal.WithLabelValues(r.Method, r.URL.Path, "engine_missing").Inc()
 		http.Error(w, "Engine not found", http.StatusInternalServerError)
 		return
 	}
@@ -108,8 +154,10 @@ func reverseProxy(w http.ResponseWriter, r *http.Request) {
 		Transport:      http.DefaultTransport,
 	}
 
+	// Check if the ResponseWriter supports Flusher
 	flusher, ok := w.(http.Flusher)
 	if !ok {
+		h.Metrics.ErrorsTotal.WithLabelValues(r.Method, r.URL.Path, "streaming_not_supported").Inc()
 		http.Error(w, "Streaming not supported", http.StatusInternalServerError)
 		return
 	}
