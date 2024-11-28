@@ -134,22 +134,15 @@ func (h *OpenAIProxyHandler) handleModels(w http.ResponseWriter, r *http.Request
 		Object: "list",
 		Data: []Model{
 			{
-				ID:      "bedrock/us.anthropic.claude-3-haiku-20240307-v1:0",
-				Name:    "claude-3-haiku",
+				ID:      "bedrock/us.anthropic.claude-3-5-haiku-20241022-v1:0",
+				Name:    "claude-3-5-haiku",
 				Object:  "model",
 				Created: 1686935002,
 				OwnedBy: "amazon",
 			},
 			{
-				ID:      "bedrock/us.anthropic.claude-3-5-sonnet-20240620-v1:0",
+				ID:      "bedrock/us.anthropic.claude-3-5-sonnet-20241022-v2:0",
 				Name:    "claude-3-5-sonnet",
-				Object:  "model",
-				Created: 1686935002,
-				OwnedBy: "amazon",
-			},
-			{
-				ID:      "bedrock/us.meta.llama3-2-11b-instruct-v1:0",
-				Name:    "llama3.2-11b",
 				Object:  "model",
 				Created: 1686935002,
 				OwnedBy: "amazon",
@@ -164,6 +157,13 @@ func (h *OpenAIProxyHandler) handleModels(w http.ResponseWriter, r *http.Request
 			{
 				ID:      "bedrock/us.meta.llama3-2-3b-instruct-v1:0",
 				Name:    "llama3.2-3b",
+				Object:  "model",
+				Created: 1686935002,
+				OwnedBy: "amazon",
+			},
+			{
+				ID:      "bedrock/us.meta.llama3-2-11b-instruct-v1:0",
+				Name:    "llama3.2-11b",
 				Object:  "model",
 				Created: 1686935002,
 				OwnedBy: "amazon",

@@ -27,12 +27,25 @@ func (e *BedrockProxy) SendChatCompletionResponse(bedrockResp *http.Response, w 
 }
 
 func (e *BedrockProxy) TransformChatCompletionRequest(reqBody openai_types.IncomingChatCompletionRequest) ([]byte, error) {
-	bedrockRequest := bedrock.Request{
-		Messages:        transformMessages(reqBody.Messages),
-		InferenceConfig: buildInferenceConfig(reqBody),
-		System: []bedrock.SystemMessage{
+	var systemMessage []bedrock.SystemMessage
+	messages := transformMessages(reqBody.Messages)
+	if messages == nil {
+		return nil, nil
+	}
+	if messages[0].Role == "system" {
+		systemMessage = []bedrock.SystemMessage{
+			{Text: messages[0].Content[0].Text},
+		}
+		messages = messages[1:]
+	} else {
+		systemMessage = []bedrock.SystemMessage{
 			{Text: "You are an assistant."},
-		},
+		}
+	}
+	bedrockRequest := bedrock.Request{
+		Messages:        messages,
+		InferenceConfig: buildInferenceConfig(reqBody),
+		System:          systemMessage,
 	}
 
 	toolConfig := buildToolConfig(reqBody)
