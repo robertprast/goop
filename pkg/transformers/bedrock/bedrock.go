@@ -5,7 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/robertprast/goop/pkg/proxy/openai_schema/types"
+	"github.com/robertprast/goop/pkg/openai_schema"
 	"io"
 	"net/http"
 	"strings"
@@ -26,7 +26,7 @@ func (e *BedrockProxy) SendChatCompletionResponse(bedrockResp *http.Response, w 
 	return e.handleResponse(bedrockResp, w)
 }
 
-func (e *BedrockProxy) TransformChatCompletionRequest(reqBody openai_types.IncomingChatCompletionRequest) ([]byte, error) {
+func (e *BedrockProxy) TransformChatCompletionRequest(reqBody openai_schema.IncomingChatCompletionRequest) ([]byte, error) {
 	var systemMessage []bedrock.SystemMessage
 	messages := transformMessages(reqBody.Messages)
 	if messages == nil {

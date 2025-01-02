@@ -44,7 +44,7 @@ func (e *BedrockEngine) SignRequest(req *http.Request) {
 		return
 	}
 
-	err = e.signer.SignHTTP(context.Background(), creds, req, payloadHash, "bedrock", e.awsConfig.Region, signingTime)
+	err = e.signer.SignHTTP(context.Background(), creds, req, payloadHash, "bedrock", e.Region, signingTime)
 	if err != nil {
 		logrus.Errorf("Failed to sign request: %v", err)
 	}

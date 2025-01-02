@@ -12,7 +12,6 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/robertprast/goop/pkg/proxy"
-	openai_proxy "github.com/robertprast/goop/pkg/proxy/openai_schema"
 	"github.com/robertprast/goop/pkg/utils"
 	"github.com/sirupsen/logrus"
 )
@@ -69,7 +68,7 @@ func (app *App) InitRouter() {
 	mux := http.NewServeMux()
 
 	proxyHandler := proxy.NewProxyHandler(app.Config, app.Logger, app.Metrics)
-	openAIProxyHandler := openai_proxy.NewHandler(app.Config, app.Logger, app.OpenProxyMetrics)
+	openAIProxyHandler := proxy.NewHandler(app.Config, app.Logger, app.OpenProxyMetrics)
 
 	mux.Handle("/", proxyHandler)
 	mux.Handle("/openai-proxy/", openAIProxyHandler)

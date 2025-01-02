@@ -1,4 +1,4 @@
-package openai_types
+package openai_schema
 
 import (
 	"encoding/json"
@@ -6,6 +6,14 @@ import (
 	"fmt"
 	"net/url"
 )
+
+type Model struct {
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Object  string `json:"object"`
+	Created int64  `json:"created"`
+	OwnedBy string `json:"owned_by"`
+}
 
 type IncomingChatCompletionRequest struct {
 	Model            string         `json:"model"`                       // The model to use (e.g., "gpt-4").

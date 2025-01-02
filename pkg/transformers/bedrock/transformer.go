@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/robertprast/goop/pkg/engine/bedrock"
-	"github.com/robertprast/goop/pkg/proxy/openai_schema/types"
+	"github.com/robertprast/goop/pkg/openai_schema"
 	"io"
 	"net/http"
 
@@ -13,7 +13,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-func buildToolConfig(reqBody openai_types.IncomingChatCompletionRequest) *bedrock.ToolConfig {
+func buildToolConfig(reqBody openai_schema.IncomingChatCompletionRequest) *bedrock.ToolConfig {
 	if len(reqBody.Tools) == 0 {
 		return nil
 	}
@@ -61,7 +61,7 @@ func buildToolConfig(reqBody openai_types.IncomingChatCompletionRequest) *bedroc
 }
 
 // transformMessages converts the OpenAI-style messages into Bedrock-compatible messages.
-func transformMessages(messages []openai_types.ChatMessage) []bedrock.Message {
+func transformMessages(messages []openai_schema.ChatMessage) []bedrock.Message {
 	bedrockMessages := make([]bedrock.Message, len(messages))
 	for i, message := range messages {
 		var contentBlocks []bedrock.ContentBlock
@@ -104,7 +104,7 @@ func transformMessages(messages []openai_types.ChatMessage) []bedrock.Message {
 }
 
 // buildInferenceConfig generates a Bedrock-compatible inference configuration from the OpenAI engine_proxy request.
-func buildInferenceConfig(reqBody openai_types.IncomingChatCompletionRequest) bedrock.InferenceConfig {
+func buildInferenceConfig(reqBody openai_schema.IncomingChatCompletionRequest) bedrock.InferenceConfig {
 	config := bedrock.InferenceConfig{}
 	if reqBody.MaxTokens != nil {
 		config.MaxTokens = *reqBody.MaxTokens

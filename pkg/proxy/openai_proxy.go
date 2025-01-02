@@ -1,54 +1,44 @@
-package openai_proxy
+package proxy
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/robertprast/goop/pkg/audit"
 	"io"
 	"net/http"
 	"strings"
 	"time"
 
+	"github.com/robertprast/goop/pkg/audit"
+	"github.com/robertprast/goop/pkg/openai_schema"
+
 	"github.com/robertprast/goop/pkg/engine/bedrock"
-	"github.com/robertprast/goop/pkg/proxy"
-	openai_types "github.com/robertprast/goop/pkg/proxy/openai_schema/types"
 	bedrockproxy "github.com/robertprast/goop/pkg/transformers/bedrock"
 	"github.com/robertprast/goop/pkg/utils"
 	"github.com/sirupsen/logrus"
 )
 
-type Middleware func(http.Handler) http.Handler
-
-type Model struct {
-	ID      string `json:"id"`
-	Name    string `json:"name"`
-	Object  string `json:"object"`
-	Created int64  `json:"created"`
-	OwnedBy string `json:"owned_by"`
-}
-
 type Response struct {
-	Object string  `json:"object"`
-	Data   []Model `json:"data"`
+	Object string                `json:"object"`
+	Data   []openai_schema.Model `json:"data"`
 }
 
 // OpenAIProxyEngine defines the interface for OpenAI proxy engines
 type OpenAIProxyEngine interface {
 	HandleChatCompletionRequest(ctx context.Context, model string, stream bool, transformedBody []byte) (*http.Response, error)
 	SendChatCompletionResponse(bedrockResp *http.Response, w http.ResponseWriter, stream bool) error
-	TransformChatCompletionRequest(reqBody openai_types.IncomingChatCompletionRequest) ([]byte, error)
+	TransformChatCompletionRequest(reqBody openai_schema.IncomingChatCompletionRequest) ([]byte, error)
 }
 
 // OpenAIProxyHandler holds dependencies for the OpenAI proxy
 type OpenAIProxyHandler struct {
 	config  *utils.Config
 	logger  *logrus.Logger
-	metrics *proxy.OpenaiProxyMetrics
+	metrics *OpenaiProxyMetrics
 }
 
 // NewHandler creates a new OpenAI proxy handler with logging and telemetry
-func NewHandler(config *utils.Config, logger *logrus.Logger, metrics *proxy.OpenaiProxyMetrics) http.Handler {
+func NewHandler(config *utils.Config, logger *logrus.Logger, metrics *OpenaiProxyMetrics) http.Handler {
 	handler := &OpenAIProxyHandler{
 		config:  config,
 		logger:  logger,
@@ -88,7 +78,7 @@ func (h *OpenAIProxyHandler) loggingMiddleware(next http.Handler) http.Handler {
 		startTime := time.Now()
 		h.metrics.RequestsTotal.WithLabelValues(r.Method, r.URL.Path).Inc()
 
-		rec := &proxy.StatusRecorder{ResponseWriter: w, StatusCode: http.StatusOK}
+		rec := &StatusRecorder{ResponseWriter: w, StatusCode: http.StatusOK}
 		next.ServeHTTP(rec, r)
 
 		duration := time.Since(startTime).Seconds()
@@ -132,53 +122,27 @@ func (h *OpenAIProxyHandler) handleModels(w http.ResponseWriter, r *http.Request
 	h.logger.Infof("Fetching model list")
 	models := Response{
 		Object: "list",
-		Data: []Model{
-			{
-				ID:      "bedrock/us.anthropic.claude-3-5-haiku-20241022-v1:0",
-				Name:    "claude-3-5-haiku",
-				Object:  "model",
-				Created: 1686935002,
-				OwnedBy: "amazon",
-			},
-			{
-				ID:      "bedrock/us.anthropic.claude-3-5-sonnet-20241022-v2:0",
-				Name:    "claude-3-5-sonnet",
-				Object:  "model",
-				Created: 1686935002,
-				OwnedBy: "amazon",
-			},
-			{
-				ID:      "bedrock/us.meta.llama3-2-1b-instruct-v1:0",
-				Name:    "llama3.2-1b",
-				Object:  "model",
-				Created: 1686935002,
-				OwnedBy: "amazon",
-			},
-			{
-				ID:      "bedrock/us.meta.llama3-2-3b-instruct-v1:0",
-				Name:    "llama3.2-3b",
-				Object:  "model",
-				Created: 1686935002,
-				OwnedBy: "amazon",
-			},
-			{
-				ID:      "bedrock/us.meta.llama3-2-11b-instruct-v1:0",
-				Name:    "llama3.2-11b",
-				Object:  "model",
-				Created: 1686935002,
-				OwnedBy: "amazon",
-			},
-			{
-				ID:      "bedrock/us.meta.llama3-2-90b-instruct-v1:0",
-				Name:    "llama3.2-90b",
-				Object:  "model",
-				Created: 1686935002,
-				OwnedBy: "amazon",
-			},
-		},
+		Data:   []openai_schema.Model{}}
+
+	logrus.Infof(h.config.Engines["bedrock"])
+	bedrockEngine, err := bedrock.NewBedrockEngine(h.config.Engines["bedrock"])
+	if err != nil {
+		h.metrics.ErrorsTotal.WithLabelValues(r.Method, r.URL.Path, "bedrock model list error").Inc()
+		h.logger.Errorf("Error listing bedrock models: %v", err)
+		http.Error(w, "Error listing bedrock models", http.StatusInternalServerError)
 	}
+	bModels, err := bedrockEngine.ListModels()
+	if err != nil {
+		h.metrics.ErrorsTotal.WithLabelValues(r.Method, r.URL.Path, "bedrock model list error").Inc()
+		h.logger.Errorf("Error listing bedrock models: %v", err)
+		http.Error(w, "Error listing bedrock models", http.StatusInternalServerError)
+	}
+
+	logrus.Infof("Got the models from bedrock %v", bModels)
+	models.Data = append(models.Data, bModels...)
+
 	w.Header().Set("Content-Type", "application/json")
-	err := json.NewEncoder(w).Encode(models)
+	err = json.NewEncoder(w).Encode(models)
 	if err != nil {
 		h.metrics.ErrorsTotal.WithLabelValues(r.Method, r.URL.Path, "encode_error").Inc()
 		h.logger.Errorf("Error encoding models response: %v", err)
@@ -208,7 +172,7 @@ func (h *OpenAIProxyHandler) handleChatCompletions(w http.ResponseWriter, r *htt
 	h.logger.Debugf("Request body raw: %s", string(body))
 
 	// Unmarshal the request body into the struct
-	var reqBody openai_types.IncomingChatCompletionRequest
+	var reqBody openai_schema.IncomingChatCompletionRequest
 	if err := json.Unmarshal(body, &reqBody); err != nil {
 		h.metrics.ErrorsTotal.WithLabelValues(r.Method, r.URL.Path, "unmarshal_error").Inc()
 		h.logger.Errorf("Error parsing request body: %v", err)
@@ -223,7 +187,7 @@ func (h *OpenAIProxyHandler) handleChatCompletions(w http.ResponseWriter, r *htt
 }
 
 // handleChatCompletionsInternal processes the chat completions request
-func (h *OpenAIProxyHandler) handleChatCompletionsInternal(w http.ResponseWriter, r *http.Request, reqBody openai_types.IncomingChatCompletionRequest, stream bool) {
+func (h *OpenAIProxyHandler) handleChatCompletionsInternal(w http.ResponseWriter, r *http.Request, reqBody openai_schema.IncomingChatCompletionRequest, stream bool) {
 	proxyEngine, err := h.selectEngine(reqBody.Model)
 	if err != nil {
 		h.metrics.ErrorsTotal.WithLabelValues(r.Method, r.URL.Path, "engine_selection_error").Inc()

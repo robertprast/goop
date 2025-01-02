@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"github.com/robertprast/goop/pkg/openai_schema"
 	"io"
 	"net/http"
 
@@ -13,6 +14,7 @@ type Engine interface {
 	IsAllowedPath(path string) bool
 	ModifyRequest(r *http.Request)
 	ResponseCallback(resp *http.Response, body io.Reader)
+	ListModels() ([]openai_schema.Model, error)
 }
 
 type contextKey string

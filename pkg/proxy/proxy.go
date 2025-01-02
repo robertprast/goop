@@ -1,6 +1,9 @@
 package proxy
 
 import (
+	"github.com/robertprast/goop/pkg/engine/azure"
+	"github.com/robertprast/goop/pkg/engine/openai"
+	"github.com/robertprast/goop/pkg/engine/vertex"
 	"net/http"
 	"net/http/httputil"
 	"strings"
@@ -8,10 +11,7 @@ import (
 
 	"github.com/robertprast/goop/pkg/audit"
 	"github.com/robertprast/goop/pkg/engine"
-	"github.com/robertprast/goop/pkg/engine/azure"
 	"github.com/robertprast/goop/pkg/engine/bedrock"
-	"github.com/robertprast/goop/pkg/engine/openai"
-	"github.com/robertprast/goop/pkg/engine/vertex"
 	"github.com/robertprast/goop/pkg/utils"
 	"github.com/sirupsen/logrus"
 )
@@ -32,14 +32,6 @@ func NewProxyHandler(config *utils.Config, logger *logrus.Logger, metrics *Metri
 	}
 	var finalHandler http.Handler = http.HandlerFunc(handler.reverseProxy)
 	finalHandler = chainMiddlewares(finalHandler, handler.auditMiddleware, handler.engineMiddleware, handler.loggingMiddleware)
-	return finalHandler
-}
-
-// chainMiddlewares applies the given middlewares to the final handler
-func chainMiddlewares(finalHandler http.Handler, middlewares ...Middleware) http.Handler {
-	for i := len(middlewares) - 1; i >= 0; i-- {
-		finalHandler = middlewares[i](finalHandler)
-	}
 	return finalHandler
 }
 
