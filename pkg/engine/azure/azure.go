@@ -2,6 +2,7 @@ package azure
 
 import (
 	"fmt"
+	"github.com/robertprast/goop/pkg/openai_schema"
 	"io"
 	"net/http"
 	"net/url"
@@ -11,10 +12,6 @@ import (
 	"github.com/robertprast/goop/pkg/engine"
 	"github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v2"
-)
-
-const (
-	DefaultFallthroughModel = "gpt-4o-mini"
 )
 
 type BackendConfig struct {
@@ -79,6 +76,10 @@ func NewAzureOpenAIEngineWithConfig(configStr string) (*AzureOpenAIEngine, error
 
 func (e *AzureOpenAIEngine) Name() string {
 	return "azure"
+}
+
+func (e *AzureOpenAIEngine) ListModels() ([]openai_schema.Model, error) {
+	return []openai_schema.Model{}, nil
 }
 
 func (e *AzureOpenAIEngine) IsAllowedPath(path string) bool {

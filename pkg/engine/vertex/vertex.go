@@ -3,6 +3,7 @@ package vertex
 import (
 	"context"
 	"fmt"
+	"github.com/robertprast/goop/pkg/openai_schema"
 	"io"
 	"net/http"
 	"net/url"
@@ -60,6 +61,10 @@ func NewVertexEngine(configStr string) (*VertexEngine, error) {
 
 func (e *VertexEngine) Name() string {
 	return "vertex"
+}
+
+func (e *VertexEngine) ListModels() ([]openai_schema.Model, error) {
+	return []openai_schema.Model{}, nil
 }
 
 func (e *VertexEngine) IsAllowedPath(path string) bool {

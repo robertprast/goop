@@ -2,11 +2,14 @@ package bedrock
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"github.com/robertprast/goop/pkg/openai_schema"
 	"io"
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
@@ -18,31 +21,38 @@ import (
 	// imported as openai_schema
 )
 
-//var _ engine.OpenAIProxyEngine = (*BedrockEngine)(nil)
+const DEFAULT_REGION = "us-east-1"
+
+type globalModels []struct {
+	ID   string `yaml:"id"`
+	Name string `yaml:"name"`
+}
 
 type BedrockEngine struct {
 	Backend *url.URL
 	Client  *bedrockruntime.Client
+	Region  string
 
-	whitelist []string
-	prefix    string
-	awsConfig aws.Config
-	signer    *v4.Signer
+	whitelist    []string
+	globalModels globalModels
+	prefix       string
+	awsConfig    aws.Config
+	signer       *v4.Signer
 }
 
 type bedrockConfig struct {
-	Enabled bool `yaml:"enabled"`
+	Enabled      bool         `yaml:"enabled"`
+	Region       string       `yaml:"region"`
+	GlobalModels globalModels `yaml:"global_models"`
 }
 
 func NewBedrockEngine(configStr string) (*BedrockEngine, error) {
 	var goopConfig bedrockConfig
-
 	err := yaml.Unmarshal([]byte(configStr), &goopConfig)
 	if err != nil {
 		logrus.Errorf("Unable to unmarshal Bedrock config: %v", err)
 		return &BedrockEngine{}, err
 	}
-
 	if !goopConfig.Enabled {
 		logrus.Info("Bedrock e is disabled")
 		return &BedrockEngine{}, fmt.Errorf("e is disabled")
@@ -53,11 +63,17 @@ func NewBedrockEngine(configStr string) (*BedrockEngine, error) {
 		logrus.Errorf("Unable to load AWS SDK config: %v", err)
 		return &BedrockEngine{}, err
 	}
-
-	region := cfg.Region
-	if region == "" {
-		region = "us-east-1"
+	var region string
+	if goopConfig.Region == "" {
+		if cfg.Region != "" {
+			region = cfg.Region
+		} else {
+			region = DEFAULT_REGION
+		}
+	} else {
+		region = goopConfig.Region
 	}
+
 	endpoint := "https://bedrock-runtime." + region + ".amazonaws.com"
 	url, err := url.Parse(endpoint)
 	if err != nil {
@@ -67,18 +83,99 @@ func NewBedrockEngine(configStr string) (*BedrockEngine, error) {
 	client := bedrockruntime.NewFromConfig(cfg)
 
 	e := &BedrockEngine{
-		Backend:   url,
-		whitelist: []string{"/model/", "/invoke", "/converse", "/converse-stream"},
-		prefix:    "/bedrock",
-		awsConfig: cfg,
-		Client:    client,
-		signer:    v4.NewSigner(),
+		Backend:      url,
+		whitelist:    []string{"/model/", "/invoke", "/converse", "/converse-stream"},
+		prefix:       "/bedrock",
+		awsConfig:    cfg,
+		Client:       client,
+		signer:       v4.NewSigner(),
+		Region:       region,
+		globalModels: goopConfig.GlobalModels,
 	}
 	return e, nil
 }
 
 func (e *BedrockEngine) Name() string {
 	return "bedrock"
+}
+
+// foundationModelsResponse matches the JSON from calling GET /foundation-models
+// based on the example response you shared.
+type foundationModelsResponse struct {
+	ModelSummaries []struct {
+		CustomizationsSupported []string `json:"customizationsSupported"`
+		InferenceTypesSupported []string `json:"inferenceTypesSupported"`
+		InputModalities         []string `json:"inputModalities"`
+		ModelArn                string   `json:"modelArn"`
+		ModelId                 string   `json:"modelId"`
+		ModelLifecycle          struct {
+			Status string `json:"status"`
+		} `json:"modelLifecycle"`
+		ModelName                string   `json:"modelName"`
+		OutputModalities         []string `json:"outputModalities"`
+		ProviderName             string   `json:"providerName"`
+		ResponseStreamingSupport bool     `json:"responseStreamingSupported"`
+	} `json:"modelSummaries"`
+}
+
+// ListModels reaches out to the AWS Bedrock foundation-models endpoint,
+// signs the request, and returns a list of openai_types.Model.
+func (e *BedrockEngine) ListModels() ([]openai_schema.Model, error) {
+	endpoint := fmt.Sprintf("https://bedrock.%s.amazonaws.com/foundation-models", e.Region)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, endpoint, nil)
+	if err != nil {
+		logrus.Errorf("failed to create request: %v", err)
+		return nil, err
+	}
+	e.SignRequest(req)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		logrus.Errorf("failed to execute request: %v", err)
+		return nil, err
+	}
+	defer func(Body io.ReadCloser) {
+		err := Body.Close()
+		if err != nil {
+
+		}
+	}(resp.Body)
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		logrus.Errorf("Bedrock returned status code %d, body: %s", resp.StatusCode, string(bodyBytes))
+		return nil, fmt.Errorf("bedrock returned status code %d", resp.StatusCode)
+	}
+
+	var fmResp foundationModelsResponse
+	if err := json.NewDecoder(resp.Body).Decode(&fmResp); err != nil {
+		logrus.Errorf("failed to decode foundation-models response: %v", err)
+		return nil, err
+	}
+
+	var models []openai_schema.Model
+	for _, summary := range fmResp.ModelSummaries {
+		models = append(models, openai_schema.Model{
+			ID:      fmt.Sprintf("bedrock/%s", summary.ModelId),
+			Name:    summary.ModelName,
+			Object:  "model",
+			Created: time.Now().Unix(),
+			OwnedBy: summary.ProviderName,
+		})
+	}
+
+	for _, summary := range e.globalModels {
+		models = append(models, openai_schema.Model{
+			ID:      fmt.Sprintf("bedrock/%s", summary.ID),
+			Name:    summary.Name,
+			Object:  "model",
+			Created: time.Now().Unix(),
+			OwnedBy: "AWS",
+		})
+	}
+
+	logrus.Infof("Found %d models from Bedrock", len(models))
+	return models, nil
 }
 
 func (e *BedrockEngine) IsAllowedPath(path string) bool {

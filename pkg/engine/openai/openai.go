@@ -2,6 +2,7 @@ package openai
 
 import (
 	"fmt"
+	"github.com/robertprast/goop/pkg/openai_schema"
 	"io"
 	"net/http"
 	"net/url"
@@ -56,6 +57,10 @@ func NewOpenAIEngineWithConfig(configStr string) (*OpenAIEngine, error) {
 
 func (e *OpenAIEngine) Name() string {
 	return "openai"
+}
+
+func (e *OpenAIEngine) ListModels() ([]openai_schema.Model, error) {
+	return []openai_schema.Model{}, nil
 }
 
 func (e *OpenAIEngine) IsAllowedPath(path string) bool {
