@@ -31,10 +31,20 @@ type IncomingChatCompletionRequest struct {
 	ToolChoice       interface{}    `json:"tool_choice,omitempty"`       // Controls which (if any) tool is called by the model.
 }
 
+type ContentPart struct {
+	Type     string    `json:"type"`                // "text" or "image_url"
+	Text     *string   `json:"text,omitempty"`      // Text content
+	ImageURL *ImageURL `json:"image_url,omitempty"` // Image URL object
+}
+type ImageURL struct {
+	URL    string `json:"url"`              // The URL or data URI
+	Detail string `json:"detail,omitempty"` // Optional: "low", "high", "auto"
+}
+
 type ChatMessage struct {
 	Role     string        `json:"role"`                // The role of the message sender ("system", "user", "assistant").
 	Type     *string       `json:"type,omitempty"`      // Type of the message (e.g., "image_url").
-	Content  *string       `json:"content,omitempty"`   // The text content of the message (optional if image is present).
+	Content  interface{}   `json:"content,omitempty"`   // The text content of the message (optional if image is present).
 	ImageURL *ChatImageURL `json:"image_url,omitempty"` // An image associated with the message (optional if content is present).
 	Name     *string       `json:"name,omitempty"`      // Optional name of the user.
 }
@@ -51,9 +61,9 @@ type FunctionTool struct {
 }
 
 type FunctionDetails struct {
-	Name        string                 `json:"name"`        // Name of the function.
-	Description string                 `json:"description"` // Description of the function.
-	Parameters  map[string]interface{} `json:"parameters"`  // Parameters schema for the function.
+	Name        string      `json:"name"`        // Name of the function.
+	Description string      `json:"description"` // Description of the function.
+	Parameters  interface{} `json:"parameters"`  // Parameters schema for the function.
 }
 
 type ToolConfig struct {
@@ -141,9 +151,11 @@ func (r *IncomingChatCompletionRequest) UnmarshalJSON(data []byte) error {
 				return fmt.Errorf("message at index %d has an invalid URL in 'image_url': %v", i, err)
 			}
 		} else {
-			// For non-image messages, Content must not be nil or empty
-			if msg.Content == nil || *msg.Content == "" {
-				return fmt.Errorf("message at index %d must have 'content' field when 'type' is not 'image_url'", i)
+			switch content := msg.Content.(type) {
+			case string:
+				if content == "" {
+					return fmt.Errorf("message at index %d must have 'content' field when 'type' is not 'image_url'", i)
+				}
 			}
 		}
 	}

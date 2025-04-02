@@ -2,11 +2,12 @@ package openai
 
 import (
 	"fmt"
-	"github.com/robertprast/goop/pkg/openai_schema"
 	"io"
 	"net/http"
 	"net/url"
 	"strings"
+
+	"github.com/robertprast/goop/pkg/openai_schema"
 
 	"github.com/robertprast/goop/pkg/engine"
 	"github.com/sirupsen/logrus"
@@ -30,7 +31,6 @@ type OpenAIEngine struct {
 func NewOpenAIEngineWithConfig(configStr string) (*OpenAIEngine, error) {
 	var backend BackendConfig
 
-	// Unmarshal YAML into slice of BackendConfig
 	if err := yaml.Unmarshal([]byte(configStr), &backend); err != nil {
 		logrus.Errorf("Error parsing OpenAI config: %v", err)
 		return nil, fmt.Errorf("error parsing OpenAI config: %w", err)
@@ -48,7 +48,7 @@ func NewOpenAIEngineWithConfig(configStr string) (*OpenAIEngine, error) {
 
 	e := &OpenAIEngine{
 		backend:   &backend,
-		whitelist: []string{"/v1/chat/completions", "/v1/completions", "/v1/models"},
+		whitelist: []string{"/v1/chat/completions", "/v1/completions", "/v1/models", "/v1/embeddings", "/v1/responses"},
 		prefix:    "/openai",
 		logger:    logrus.WithField("e", "openai"),
 	}
@@ -74,7 +74,6 @@ func (e *OpenAIEngine) IsAllowedPath(path string) bool {
 }
 
 func (e *OpenAIEngine) ModifyRequest(r *http.Request) {
-
 	r.URL.Path = strings.TrimPrefix(r.URL.Path, e.prefix)
 	r.Host = e.backend.BackendURL.Host
 	r.URL.Scheme = e.backend.BackendURL.Scheme

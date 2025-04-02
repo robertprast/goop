@@ -1,11 +1,12 @@
 engines:
   openai:
     api_key: "${OPENAI_API_KEY}"
-    base_url: "http://localhost:11434/v1"
+    base_url: "${OPENAI_API_BASE_URL}"
+    # base_url: "http://localhost:11434/v1"
 #    api_key: "${OPENAI_API_KEY}"
 #    base_url: "http://host.docker.internal:11434/v1"
   #   api_key: "${OPENAI_API_KEY}"
-  #   base_url: "https://api.openai.com/v1"
+    # base_url: "https://api.openai.com/v1"
 
   # azure:
   #   - api_key: "${OPENAI_API_KEY}"
@@ -14,27 +15,9 @@ engines:
 
   vertex:
     enabled: true
+    project_id: "encrypted-llm"
 
   bedrock:
     enabled: true
     region: us-east-1
-    global_models:
-      - id: us.anthropic.claude-3-5-sonnet-20241022-v2:0
-        name: Claude 3.5 Sonnet v2222
-      - id: us.meta.llama3-2-11b-instruct-v1:0
-        name: Llama 3.2 11B Vision Instruct
-      - id: us.meta.llama3-2-1b-instruct-v1:0
-        name: Llama 3.2 1B Instruct
-      - id: us.meta.llama3-2-3b-instruct-v1:0
-        name: Llama 3.2 3B Instruct
-      - id: us.meta.llama3-2-90b-instruct-v1:0
-        name: Llama 3.2 90B Vision Instruct
-      - id: us.meta.llama3-3-70b-instruct-v1:0
-        name: Llama 3.3 70B Instruct
-      - id: us.amazon.nova-lite-v1:0
-        name: Nova Lite
-      - id: us.amazon.nova-micro-v1:0
-        name: Nova Micro
-      - id: us.amazon.nova-pro-v1:0
-        name: Nova Pro
 

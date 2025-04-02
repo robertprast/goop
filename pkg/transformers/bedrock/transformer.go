@@ -4,59 +4,122 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"github.com/robertprast/goop/pkg/engine/bedrock"
-	"github.com/robertprast/goop/pkg/openai_schema"
 	"io"
 	"net/http"
+
+	"github.com/robertprast/goop/pkg/engine/bedrock"
+	"github.com/robertprast/goop/pkg/openai_schema"
 
 	"github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream"
 	"github.com/sirupsen/logrus"
 )
 
 func buildToolConfig(reqBody openai_schema.IncomingChatCompletionRequest) *bedrock.ToolConfig {
+	// --- Keep your existing buildToolConfig implementation ---
+	// (Ensure it correctly handles tool.Function.Name checks as per previous fixes if needed)
 	if len(reqBody.Tools) == 0 {
 		return nil
 	}
-
+	logrus.Infof("Building tool config from request body: %v", reqBody)
 	toolConfig := &bedrock.ToolConfig{
-		Tools: make([]bedrock.Tool, len(reqBody.Tools)),
+		Tools: make([]bedrock.Tool, 0, len(reqBody.Tools)), // Initialize with 0 length, capacity len
 	}
-
 	for i, tool := range reqBody.Tools {
-		// Ensure tool name and description are provided to prevent Bedrock API validation errors.
-		if tool.Function.Name == "" {
-			tool.Function.Name = "default_function_name"
+		if tool.Type != "function" {
+			logrus.Warnf("Skipping non-function tool type: %s", tool.Type)
+			continue
 		}
-		if tool.Function.Description == "" {
-			tool.Function.Description = "Default description for the function"
+		// Validate function details
+		funcName := tool.Function.Name
+		funcDesc := tool.Function.Description
+		if funcName == "" {
+			logrus.Warnf("Tool index %d has type 'function' but empty Name. Skipping.", i)
+			// Or assign a default if Bedrock *requires* it, but skipping is safer.
+			// funcName = fmt.Sprintf("unnamed_function_%d", i)
+			continue // Skip tool with no name
+		}
+		// Bedrock might require description, add default if needed and allowed
+		if funcDesc == "" {
+			logrus.Warnf("Tool '%s' has empty description, using default.", funcName)
+			funcDesc = "No description provided." // Or handle as error if required
 		}
 
-		toolConfig.Tools[i] = bedrock.Tool{
+		// Ensure parameters are valid JSON Schema (map[string]interface{})
+		// We assume reqBody.Tools[i].Function.Parameters is already this type
+		parametersSchema, ok := tool.Function.Parameters.(map[string]interface{})
+		if !ok && tool.Function.Parameters != nil {
+			logrus.Errorf("Tool '%s' parameters are not a valid JSON Schema object (map[string]interface{}). Type: %T. Skipping.", funcName, tool.Function.Parameters)
+			continue // Skip if parameters are malformed
+		}
+		if ok && len(parametersSchema) == 0 {
+			// Handle empty parameters map if necessary, Bedrock might require at least {}
+			logrus.Debugf("Tool '%s' has empty parameters map.", funcName)
+			// parametersSchema = map[string]interface{}{} // Ensure it's an empty object, not nil
+		}
+
+		toolConfig.Tools = append(toolConfig.Tools, bedrock.Tool{
 			ToolSpec: bedrock.ToolSpec{
-				Name:        tool.Function.Name,
-				Description: tool.Function.Description,
+				Name:        funcName,
+				Description: funcDesc,
 				InputSchema: bedrock.InputSchema{
-					JSON: tool.Function.Parameters,
+					// Ensure parametersSchema is correctly passed (it should be map[string]interface{} or nil)
+					JSON: parametersSchema,
 				},
 			},
-		}
+		})
 	}
 
+	// If no valid tools were added, return nil
+	if len(toolConfig.Tools) == 0 {
+		logrus.Warnf("No valid function tools found to build Bedrock tool config.")
+		return nil
+	}
+
+	// Handle ToolChoice
+	var toolChoice bedrock.ToolChoice = bedrock.ToolChoice{Auto: &struct{}{}} // Default to auto
 	switch choice := reqBody.ToolChoice.(type) {
 	case string:
 		switch choice {
 		case "auto":
-			toolConfig.ToolChoice = bedrock.ToolChoice{Auto: &struct{}{}}
-		case "required":
-			toolConfig.ToolChoice = bedrock.ToolChoice{Any: &struct{}{}}
+			toolChoice.Auto = &struct{}{}
+		case "any": // OpenAI "required" often maps to Bedrock "any"
+			logrus.Infof("Mapping OpenAI tool_choice 'required' to Bedrock 'any'.")
+			toolChoice.Any = &struct{}{}
+			toolChoice.Auto = nil // Explicitly nil Auto if Any is set
+		case "none":
+			// Bedrock doesn't have a direct "none". Auto is the closest default.
+			logrus.Warnf("OpenAI tool_choice 'none' not directly supported by Bedrock, using 'auto'.")
+			toolChoice.Auto = &struct{}{}
+		default:
+			logrus.Warnf("Unknown string tool_choice '%s', defaulting to 'auto'.", choice)
+			toolChoice.Auto = &struct{}{}
 		}
 	case map[string]interface{}:
-		if tool, ok := choice["function"].(map[string]interface{}); ok {
-			if name, ok := tool["name"].(string); ok {
-				toolConfig.ToolChoice = bedrock.ToolChoice{Tool: &bedrock.ToolName{Name: name}}
+		// Handle specific tool choice: { "type": "function", "function": { "name": "my_func" } }
+		if choiceType, ok := choice["type"].(string); ok && choiceType == "function" {
+			if tool, ok := choice["function"].(map[string]interface{}); ok {
+				if name, ok := tool["name"].(string); ok && name != "" {
+					logrus.Infof("Setting Bedrock tool_choice to specific tool: %s", name)
+					toolChoice.Tool = &bedrock.ToolName{Name: name}
+					toolChoice.Auto = nil // Explicitly nil Auto if Tool is set
+				} else {
+					logrus.Warnf("Tool choice specified function but name was missing or empty, defaulting to 'auto'.")
+				}
+			} else {
+				logrus.Warnf("Tool choice 'function' format invalid, defaulting to 'auto'.")
 			}
+		} else {
+			logrus.Warnf("Unsupported tool_choice object format, defaulting to 'auto'.")
 		}
+	default:
+		if reqBody.ToolChoice != nil { // Log only if it was provided but unhandled type
+			logrus.Warnf("Unsupported type for tool_choice: %T, defaulting to 'auto'.", reqBody.ToolChoice)
+		}
+		// Default is already auto
 	}
+	toolConfig.ToolChoice = toolChoice
+
+	logrus.Infof("Built tool config: %+v", toolConfig)
 	return toolConfig
 }
 
@@ -64,11 +127,16 @@ func buildToolConfig(reqBody openai_schema.IncomingChatCompletionRequest) *bedro
 func transformMessages(messages []openai_schema.ChatMessage) []bedrock.Message {
 	bedrockMessages := make([]bedrock.Message, len(messages))
 	for i, message := range messages {
-		var contentBlocks []bedrock.ContentBlock
+		if message.Content == nil {
+			logrus.Warnf("Message %d has nil content, skipping.", i)
+			continue
+		}
 
-		if message.Content != nil {
+		var contentBlocks []bedrock.ContentBlock
+		switch content := message.Content.(type) {
+		case string:
 			contentBlocks = append(contentBlocks, bedrock.ContentBlock{
-				Text: *message.Content,
+				Text: content,
 			})
 		}
 

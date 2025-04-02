@@ -3,11 +3,12 @@ package vertex
 import (
 	"context"
 	"fmt"
-	"github.com/robertprast/goop/pkg/openai_schema"
 	"io"
 	"net/http"
 	"net/url"
 	"strings"
+
+	"github.com/robertprast/goop/pkg/openai_schema"
 
 	"github.com/robertprast/goop/pkg/engine"
 	"github.com/sirupsen/logrus"
@@ -17,6 +18,7 @@ import (
 
 type BackendConfig struct {
 	BackendURL *url.URL
+	ProjectID  string `yaml:"project_id"`
 }
 
 type VertexEngine struct {
@@ -26,7 +28,8 @@ type VertexEngine struct {
 }
 
 type vertexConfig struct {
-	Enabled bool `yaml:"enabled"`
+	Enabled   bool   `yaml:"enabled"`
+	ProjectID string `yaml:"project_id"`
 }
 
 func NewVertexEngine(configStr string) (*VertexEngine, error) {
@@ -39,8 +42,8 @@ func NewVertexEngine(configStr string) (*VertexEngine, error) {
 	}
 
 	if !goopConfig.Enabled {
-		logrus.Info("Bedrock e is disabled")
-		return &VertexEngine{}, err
+		logrus.Info("Vertex AI engine is disabled")
+		return &VertexEngine{}, fmt.Errorf("vertex AI engine is disabled")
 	}
 
 	url, err := url.Parse("https://us-central1-aiplatform.googleapis.com")
@@ -52,6 +55,7 @@ func NewVertexEngine(configStr string) (*VertexEngine, error) {
 		backends: []*BackendConfig{
 			{
 				BackendURL: url,
+				ProjectID:  goopConfig.ProjectID,
 			}},
 		prefix: "/vertex",
 		logger: logrus.WithField("e", "vertex"),
@@ -64,7 +68,33 @@ func (e *VertexEngine) Name() string {
 }
 
 func (e *VertexEngine) ListModels() ([]openai_schema.Model, error) {
-	return []openai_schema.Model{}, nil
+	models := []openai_schema.Model{
+		{
+			ID:      "vertex/gemini-1.0-pro",
+			Object:  "model",
+			Created: 0,
+			OwnedBy: "google",
+		},
+		{
+			ID:      "vertex/gemini-1.5-pro",
+			Object:  "model",
+			Created: 0,
+			OwnedBy: "google",
+		},
+		{
+			ID:      "vertex/gemini-1.5-flash",
+			Object:  "model",
+			Created: 0,
+			OwnedBy: "google",
+		},
+		{
+			ID:      "vertex/gemini-2.5-pro-exp-03-25",
+			Object:  "model",
+			Created: 0,
+			OwnedBy: "google",
+		},
+	}
+	return models, nil
 }
 
 func (e *VertexEngine) IsAllowedPath(path string) bool {
@@ -99,6 +129,20 @@ func (e *VertexEngine) ResponseCallback(resp *http.Response, body io.Reader) {
 	id, _ := resp.Request.Context().Value(engine.RequestId).(string)
 	logrus.Infof("Response [HTTP %d] Correlation ID: %s Body Length: %d\n",
 		resp.StatusCode, id, resp.ContentLength)
+}
+
+func (e *VertexEngine) GetBackendURL() string {
+	if len(e.backends) == 0 || e.backends[0].BackendURL == nil {
+		return ""
+	}
+	return e.backends[0].BackendURL.String()
+}
+
+func (e *VertexEngine) GetProjectID() string {
+	if len(e.backends) == 0 {
+		return ""
+	}
+	return e.backends[0].ProjectID
 }
 
 func getAccessToken() (string, error) {
