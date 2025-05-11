@@ -13,7 +13,9 @@ import (
 	"github.com/robertprast/goop/pkg/openai_schema"
 
 	"github.com/robertprast/goop/pkg/engine/bedrock"
+	"github.com/robertprast/goop/pkg/engine/vertex"
 	bedrockproxy "github.com/robertprast/goop/pkg/transformers/bedrock"
+	vertexproxy "github.com/robertprast/goop/pkg/transformers/vertex"
 	"github.com/robertprast/goop/pkg/utils"
 	"github.com/sirupsen/logrus"
 )
@@ -96,7 +98,7 @@ func (h *OpenAIProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	startTime := time.Now()
 
 	// Read and parse the request body
-	h.logger.Infof("Transforming path %s", r.URL.Path)
+	h.logger.Infof("Transforming path in openai proxy %s", r.URL.Path)
 
 	switch r.URL.Path {
 	case "/openai-proxy/v1/models":
@@ -130,16 +132,35 @@ func (h *OpenAIProxyHandler) handleModels(w http.ResponseWriter, r *http.Request
 		h.metrics.ErrorsTotal.WithLabelValues(r.Method, r.URL.Path, "bedrock model list error").Inc()
 		h.logger.Errorf("Error listing bedrock models: %v", err)
 		http.Error(w, "Error listing bedrock models", http.StatusInternalServerError)
+		return
 	}
 	bModels, err := bedrockEngine.ListModels()
 	if err != nil {
 		h.metrics.ErrorsTotal.WithLabelValues(r.Method, r.URL.Path, "bedrock model list error").Inc()
 		h.logger.Errorf("Error listing bedrock models: %v", err)
 		http.Error(w, "Error listing bedrock models", http.StatusInternalServerError)
+		return
 	}
 
 	logrus.Infof("Got the models from bedrock %v", bModels)
 	models.Data = append(models.Data, bModels...)
+
+	vertexEngine, err := vertex.NewVertexEngine(h.config.Engines["vertex"])
+	if err != nil {
+		h.metrics.ErrorsTotal.WithLabelValues(r.Method, r.URL.Path, "vertex model list error").Inc()
+		h.logger.Errorf("Error listing vertex models: %v", err)
+		http.Error(w, "Error listing vertex models", http.StatusInternalServerError)
+		return
+	}
+	vModels, err := vertexEngine.ListModels()
+	if err != nil {
+		h.metrics.ErrorsTotal.WithLabelValues(r.Method, r.URL.Path, "vertex model list error").Inc()
+		h.logger.Errorf("Error listing vertex models: %v", err)
+		http.Error(w, "Error listing vertex models", http.StatusInternalServerError)
+		return
+	}
+	logrus.Infof("Got the models from vertex %v", vModels)
+	models.Data = append(models.Data, vModels...)
 
 	w.Header().Set("Content-Type", "application/json")
 	err = json.NewEncoder(w).Encode(models)
@@ -169,7 +190,7 @@ func (h *OpenAIProxyHandler) handleChatCompletions(w http.ResponseWriter, r *htt
 	}(r.Body)
 
 	// Log the raw body for debugging
-	h.logger.Debugf("Request body raw: %s", string(body))
+	h.logger.Debugf("Request body raw!!: %s", string(body))
 
 	// Unmarshal the request body into the struct
 	var reqBody openai_schema.IncomingChatCompletionRequest
@@ -179,6 +200,7 @@ func (h *OpenAIProxyHandler) handleChatCompletions(w http.ResponseWriter, r *htt
 		http.Error(w, "Error parsing request body", http.StatusBadRequest)
 		return
 	}
+	h.logger.Info("Parsed request body: ", reqBody)
 
 	h.logger.Debugf("Request body after transform: %+v", reqBody)
 	h.metrics.ChatCompletions.WithLabelValues(reqBody.Model).Inc()
@@ -239,8 +261,16 @@ func (h *OpenAIProxyHandler) selectEngine(model string) (OpenAIProxyEngine, erro
 			BedrockEngine: bedrockEngine,
 		}, nil
 	case strings.HasPrefix(model, "vertex/"):
-		h.metrics.ErrorsTotal.WithLabelValues("vertex", model, "not_implemented").Inc()
-		return nil, fmt.Errorf("vertex AI not yet implemented")
+		h.logger.Info("Selecting Vertex AI engine")
+		vertexEngine, err := vertex.NewVertexEngine(h.config.Engines["vertex"])
+		if err != nil {
+			h.metrics.ErrorsTotal.WithLabelValues("vertex", model, "engine_init_error").Inc()
+			h.logger.Errorf("Error creating Vertex engine: %v", err)
+			return nil, err
+		}
+		return &vertexproxy.VertexProxy{
+			VertexEngine: vertexEngine,
+		}, nil
 	default:
 		h.metrics.ErrorsTotal.WithLabelValues("unknown", model, "unsupported_model").Inc()
 		return nil, fmt.Errorf("unsupported model: %s", model)

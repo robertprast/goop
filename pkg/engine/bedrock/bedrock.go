@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/robertprast/goop/pkg/openai_schema"
 	"io"
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
+
+	"github.com/robertprast/goop/pkg/openai_schema"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
@@ -18,32 +20,53 @@ import (
 	"github.com/robertprast/goop/pkg/engine"
 	"github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v2"
-	// imported as openai_schema
 )
 
 const DEFAULT_REGION = "us-east-1"
+const CR_INFERENCE_PREFIX = "us"
 
-type globalModels []struct {
-	ID   string `yaml:"id"`
-	Name string `yaml:"name"`
-}
+var (
+	cachedModels      []openai_schema.Model
+	cachedModelsLock  sync.RWMutex
+	cachedModelsTime  time.Time
+	cacheValidityTime = 5 * time.Minute // Cache valid for 5 minutes
+)
 
 type BedrockEngine struct {
 	Backend *url.URL
 	Client  *bedrockruntime.Client
 	Region  string
 
-	whitelist    []string
-	globalModels globalModels
-	prefix       string
-	awsConfig    aws.Config
-	signer       *v4.Signer
+	whitelist []string
+	prefix    string
+	awsConfig aws.Config
+	signer    *v4.Signer
 }
 
 type bedrockConfig struct {
-	Enabled      bool         `yaml:"enabled"`
-	Region       string       `yaml:"region"`
-	GlobalModels globalModels `yaml:"global_models"`
+	Enabled bool   `yaml:"enabled"`
+	Region  string `yaml:"region"`
+}
+
+type foundationModelsResponse struct {
+	ModelSummaries []ModelSummary `json:"modelSummaries"`
+}
+
+type ModelSummary struct {
+	CustomizationsSupported    []string       `json:"customizationsSupported"`
+	InferenceTypesSupported    []string       `json:"inferenceTypesSupported"`
+	InputModalities            []string       `json:"inputModalities"`
+	ModelArn                   string         `json:"modelArn"`
+	ModelId                    string         `json:"modelId"`
+	ModelLifecycle             ModelLifecycle `json:"modelLifecycle"`
+	ModelName                  string         `json:"modelName"`
+	OutputModalities           []string       `json:"outputModalities"`
+	ProviderName               string         `json:"providerName"`
+	ResponseStreamingSupported bool           `json:"responseStreamingSupported"`
+}
+
+type ModelLifecycle struct {
+	Status string `json:"status"`
 }
 
 func NewBedrockEngine(configStr string) (*BedrockEngine, error) {
@@ -83,14 +106,13 @@ func NewBedrockEngine(configStr string) (*BedrockEngine, error) {
 	client := bedrockruntime.NewFromConfig(cfg)
 
 	e := &BedrockEngine{
-		Backend:      url,
-		whitelist:    []string{"/model/", "/invoke", "/converse", "/converse-stream"},
-		prefix:       "/bedrock",
-		awsConfig:    cfg,
-		Client:       client,
-		signer:       v4.NewSigner(),
-		Region:       region,
-		globalModels: goopConfig.GlobalModels,
+		Backend:   url,
+		whitelist: []string{"/model/", "/invoke", "/converse", "/converse-stream"},
+		prefix:    "/bedrock",
+		awsConfig: cfg,
+		Client:    client,
+		signer:    v4.NewSigner(),
+		Region:    region,
 	}
 	return e, nil
 }
@@ -99,28 +121,22 @@ func (e *BedrockEngine) Name() string {
 	return "bedrock"
 }
 
-// foundationModelsResponse matches the JSON from calling GET /foundation-models
-// based on the example response you shared.
-type foundationModelsResponse struct {
-	ModelSummaries []struct {
-		CustomizationsSupported []string `json:"customizationsSupported"`
-		InferenceTypesSupported []string `json:"inferenceTypesSupported"`
-		InputModalities         []string `json:"inputModalities"`
-		ModelArn                string   `json:"modelArn"`
-		ModelId                 string   `json:"modelId"`
-		ModelLifecycle          struct {
-			Status string `json:"status"`
-		} `json:"modelLifecycle"`
-		ModelName                string   `json:"modelName"`
-		OutputModalities         []string `json:"outputModalities"`
-		ProviderName             string   `json:"providerName"`
-		ResponseStreamingSupport bool     `json:"responseStreamingSupported"`
-	} `json:"modelSummaries"`
-}
-
 // ListModels reaches out to the AWS Bedrock foundation-models endpoint,
 // signs the request, and returns a list of openai_types.Model.
 func (e *BedrockEngine) ListModels() ([]openai_schema.Model, error) {
+	// Check cache first
+	cachedModelsLock.RLock()
+	if cachedModels != nil && time.Since(cachedModelsTime) < cacheValidityTime {
+		defer cachedModelsLock.RUnlock()
+		return cachedModels, nil
+	}
+	cachedModelsLock.RUnlock()
+	cachedModelsLock.Lock()
+	defer cachedModelsLock.Unlock()
+	if cachedModels != nil && time.Since(cachedModelsTime) < cacheValidityTime {
+		return cachedModels, nil
+	}
+
 	endpoint := fmt.Sprintf("https://bedrock.%s.amazonaws.com/foundation-models", e.Region)
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, endpoint, nil)
 	if err != nil {
@@ -128,7 +144,6 @@ func (e *BedrockEngine) ListModels() ([]openai_schema.Model, error) {
 		return nil, err
 	}
 	e.SignRequest(req)
-
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		logrus.Errorf("failed to execute request: %v", err)
@@ -137,16 +152,14 @@ func (e *BedrockEngine) ListModels() ([]openai_schema.Model, error) {
 	defer func(Body io.ReadCloser) {
 		err := Body.Close()
 		if err != nil {
-
+			logrus.Errorf("failed to close response body: %v", err)
 		}
 	}(resp.Body)
-
 	if resp.StatusCode != http.StatusOK {
 		bodyBytes, _ := io.ReadAll(resp.Body)
 		logrus.Errorf("Bedrock returned status code %d, body: %s", resp.StatusCode, string(bodyBytes))
 		return nil, fmt.Errorf("bedrock returned status code %d", resp.StatusCode)
 	}
-
 	var fmResp foundationModelsResponse
 	if err := json.NewDecoder(resp.Body).Decode(&fmResp); err != nil {
 		logrus.Errorf("failed to decode foundation-models response: %v", err)
@@ -155,26 +168,45 @@ func (e *BedrockEngine) ListModels() ([]openai_schema.Model, error) {
 
 	var models []openai_schema.Model
 	for _, summary := range fmResp.ModelSummaries {
-		models = append(models, openai_schema.Model{
-			ID:      fmt.Sprintf("bedrock/%s", summary.ModelId),
-			Name:    summary.ModelName,
-			Object:  "model",
-			Created: time.Now().Unix(),
-			OwnedBy: summary.ProviderName,
-		})
+		// Skip if streaming is not supported or status is not ACTIVE
+		if !summary.ResponseStreamingSupported || summary.ModelLifecycle.Status != "ACTIVE" {
+			continue
+		}
+		// Check for ON_DEMAND inference type
+		isOnDemand := false
+		for _, inferenceType := range summary.InferenceTypesSupported {
+			if inferenceType == "ON_DEMAND" {
+				isOnDemand = true
+				break
+			}
+		}
+		if isOnDemand {
+			models = append(models, openai_schema.Model{
+				ID:      fmt.Sprintf("bedrock/%s", summary.ModelId),
+				Name:    summary.ModelName,
+				Object:  "model",
+				Created: time.Now().Unix(),
+				OwnedBy: summary.ProviderName,
+			})
+		}
+		// Handle cross-region inference models
+		if CR_INFERENCE_PREFIX != "" {
+			profileID := fmt.Sprintf("%s.%s", CR_INFERENCE_PREFIX, summary.ModelId)
+			models = append(models, openai_schema.Model{
+				ID:      fmt.Sprintf("bedrock/%s", profileID),
+				Name:    summary.ModelName,
+				Object:  "model",
+				Created: time.Now().Unix(),
+				OwnedBy: summary.ProviderName,
+			})
+		}
 	}
 
-	for _, summary := range e.globalModels {
-		models = append(models, openai_schema.Model{
-			ID:      fmt.Sprintf("bedrock/%s", summary.ID),
-			Name:    summary.Name,
-			Object:  "model",
-			Created: time.Now().Unix(),
-			OwnedBy: "AWS",
-		})
-	}
+	// Update cache
+	cachedModels = models
+	cachedModelsTime = time.Now()
 
-	logrus.Infof("Found %d models from Bedrock", len(models))
+	logrus.Infof("Found %d filtered models from Bedrock", len(models))
 	return models, nil
 }
 

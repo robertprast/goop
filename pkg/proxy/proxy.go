@@ -1,13 +1,14 @@
 package proxy
 
 import (
-	"github.com/robertprast/goop/pkg/engine/azure"
-	"github.com/robertprast/goop/pkg/engine/openai"
-	"github.com/robertprast/goop/pkg/engine/vertex"
 	"net/http"
 	"net/http/httputil"
 	"strings"
 	"time"
+
+	"github.com/robertprast/goop/pkg/engine/azure"
+	"github.com/robertprast/goop/pkg/engine/openai"
+	"github.com/robertprast/goop/pkg/engine/vertex"
 
 	"github.com/robertprast/goop/pkg/audit"
 	"github.com/robertprast/goop/pkg/engine"
@@ -130,6 +131,11 @@ func (h *ProxyHandler) reverseProxy(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Engine not found", http.StatusInternalServerError)
 		return
 	}
+	h.Logger.Infof("Transforming path %s", r.URL.Path)
+	h.Logger.Infof("Transforming request for %s", eng.Name())
+	h.Logger.Infof("using engine %s", eng.Name())
+	h.Logger.Infof("Request body: %s", r.Body)
+	defer r.Body.Close()
 
 	eng.ModifyRequest(r)
 

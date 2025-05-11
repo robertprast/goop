@@ -3,3 +3,4 @@ bin/*
 .idea
 .venv
 test.py
+.aider*
