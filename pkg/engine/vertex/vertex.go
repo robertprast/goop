@@ -70,7 +70,31 @@ func (e *VertexEngine) Name() string {
 func (e *VertexEngine) ListModels() ([]openai_schema.Model, error) {
 	models := []openai_schema.Model{
 		{
-			ID:      "vertex/gemini-1.0-pro",
+			ID:      "vertex/gemini-2.5-pro-preview-05-06",
+			Object:  "model",
+			Created: 0,
+			OwnedBy: "google",
+		},
+		{
+			ID:      "vertex/gemini-2.5-pro-exp-03-25",
+			Object:  "model",
+			Created: 0,
+			OwnedBy: "google",
+		},
+		{
+			ID:      "vertex/gemini-2.5-flash",
+			Object:  "model",
+			Created: 0,
+			OwnedBy: "google",
+		},
+		{
+			ID:      "vertex/gemini-2.0-flash",
+			Object:  "model",
+			Created: 0,
+			OwnedBy: "google",
+		},
+		{
+			ID:      "vertex/gemini-2.0-flash-lite",
 			Object:  "model",
 			Created: 0,
 			OwnedBy: "google",
@@ -83,12 +107,6 @@ func (e *VertexEngine) ListModels() ([]openai_schema.Model, error) {
 		},
 		{
 			ID:      "vertex/gemini-1.5-flash",
-			Object:  "model",
-			Created: 0,
-			OwnedBy: "google",
-		},
-		{
-			ID:      "vertex/gemini-2.5-pro-exp-03-25",
 			Object:  "model",
 			Created: 0,
 			OwnedBy: "google",
