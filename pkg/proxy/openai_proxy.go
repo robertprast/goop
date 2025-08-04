@@ -14,10 +14,10 @@ import (
 
 	"github.com/robertprast/goop/pkg/engine/bedrock"
 	"github.com/robertprast/goop/pkg/engine/openai"
-	"github.com/robertprast/goop/pkg/engine/vertex"
+	"github.com/robertprast/goop/pkg/engine/gemini"
 	bedrockproxy "github.com/robertprast/goop/pkg/transformers/bedrock"
 	openaiproxy "github.com/robertprast/goop/pkg/transformers/openai"
-	vertexproxy "github.com/robertprast/goop/pkg/transformers/vertex"
+	geminiproxy "github.com/robertprast/goop/pkg/transformers/gemini"
 	"github.com/robertprast/goop/pkg/utils"
 	"github.com/sirupsen/logrus"
 )
@@ -165,20 +165,20 @@ func (h *OpenAIProxyHandler) handleModels(w http.ResponseWriter, r *http.Request
 		}
 	}
 
-	// Add Vertex models if configured
-	if _, ok := h.config.Engines["vertex"]; ok {
-		vertexEngine, err := vertex.NewVertexEngine(h.config.Engines["vertex"])
+	// Add Gemini models if configured
+	if _, ok := h.config.Engines["gemini"]; ok {
+		geminiEngine, err := gemini.NewGeminiEngine(h.config.Engines["gemini"])
 		if err != nil {
-			h.metrics.ErrorsTotal.WithLabelValues(r.Method, r.URL.Path, "vertex model list error").Inc()
-			h.logger.Errorf("Error listing vertex models: %v", err)
+			h.metrics.ErrorsTotal.WithLabelValues(r.Method, r.URL.Path, "gemini model list error").Inc()
+			h.logger.Errorf("Error listing gemini models: %v", err)
 		} else {
-			vModels, err := vertexEngine.ListModels()
+			gModels, err := geminiEngine.ListModels()
 			if err != nil {
-				h.metrics.ErrorsTotal.WithLabelValues(r.Method, r.URL.Path, "vertex model list error").Inc()
-				h.logger.Errorf("Error listing vertex models: %v", err)
+				h.metrics.ErrorsTotal.WithLabelValues(r.Method, r.URL.Path, "gemini model list error").Inc()
+				h.logger.Errorf("Error listing gemini models: %v", err)
 			} else {
-				logrus.Infof("Got the models from vertex %v", vModels)
-				models.Data = append(models.Data, vModels...)
+				logrus.Infof("Got the models from gemini %v", gModels)
+				models.Data = append(models.Data, gModels...)
 			}
 		}
 	}
@@ -292,16 +292,16 @@ func (h *OpenAIProxyHandler) selectEngine(model string) (OpenAIProxyEngine, erro
 		return &bedrockproxy.BedrockProxy{
 			BedrockEngine: bedrockEngine,
 		}, nil
-	case strings.HasPrefix(model, "vertex/"):
-		h.logger.Info("Selecting Vertex AI engine")
-		vertexEngine, err := vertex.NewVertexEngine(h.config.Engines["vertex"])
+	case strings.HasPrefix(model, "gemini/"):
+		h.logger.Info("Selecting Gemini AI engine")
+		geminiEngine, err := gemini.NewGeminiEngine(h.config.Engines["gemini"])
 		if err != nil {
-			h.metrics.ErrorsTotal.WithLabelValues("vertex", model, "engine_init_error").Inc()
-			h.logger.Errorf("Error creating Vertex engine: %v", err)
+			h.metrics.ErrorsTotal.WithLabelValues("gemini", model, "engine_init_error").Inc()
+			h.logger.Errorf("Error creating Gemini engine: %v", err)
 			return nil, err
 		}
-		return &vertexproxy.VertexProxy{
-			VertexEngine: vertexEngine,
+		return &geminiproxy.GeminiProxy{
+			GeminiEngine: geminiEngine,
 		}, nil
 	// If no prefix is provided, try to infer the engine from available configurations
 	default:
@@ -322,20 +322,20 @@ func (h *OpenAIProxyHandler) selectEngine(model string) (OpenAIProxyEngine, erro
 		}
 		// Check if it's a known Gemini model
 		if strings.HasPrefix(model, "gemini-") {
-			if _, ok := h.config.Engines["vertex"]; ok {
-				h.logger.Infof("Detected Gemini model %s, selecting Vertex engine", model)
-				vertexEngine, err := vertex.NewVertexEngine(h.config.Engines["vertex"])
+			if _, ok := h.config.Engines["gemini"]; ok {
+				h.logger.Infof("Detected Gemini model %s, selecting Gemini engine", model)
+				geminiEngine, err := gemini.NewGeminiEngine(h.config.Engines["gemini"])
 				if err != nil {
-					h.metrics.ErrorsTotal.WithLabelValues("vertex", model, "engine_init_error").Inc()
-					h.logger.Errorf("Error creating Vertex engine: %v", err)
+					h.metrics.ErrorsTotal.WithLabelValues("gemini", model, "engine_init_error").Inc()
+					h.logger.Errorf("Error creating Gemini engine: %v", err)
 					return nil, err
 				}
-				return &vertexproxy.VertexProxy{
-					VertexEngine: vertexEngine,
+				return &geminiproxy.GeminiProxy{
+					GeminiEngine: geminiEngine,
 				}, nil
 			}
 		}
 		h.metrics.ErrorsTotal.WithLabelValues("unknown", model, "unsupported_model").Inc()
-		return nil, fmt.Errorf("unsupported model: %s. Use prefixes like openai/, bedrock/, or vertex/ to specify the engine", model)
+		return nil, fmt.Errorf("unsupported model: %s. Use prefixes like openai/, bedrock/, or gemini/ to specify the engine", model)
 	}
 }

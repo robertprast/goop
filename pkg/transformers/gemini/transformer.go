@@ -1,4 +1,4 @@
-package vertex
+package gemini
 
 import (
 	"bytes"
@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/robertprast/goop/pkg/engine/vertex"
+	"github.com/robertprast/goop/pkg/engine/gemini"
 	"github.com/robertprast/goop/pkg/openai_schema"
 	"github.com/sirupsen/logrus"
 )
@@ -29,36 +29,36 @@ func (fw *flushWriter) Write(p []byte) (n int, err error) {
 	return n, err
 }
 
-// VertexProxy acts as a simple pass-through for Vertex AI requests
+// GeminiProxy acts as a simple pass-through for Gemini AI requests
 // since Google now provides OpenAI-compatible endpoints.
-type VertexProxy struct {
-	VertexEngine *vertex.VertexEngine
+type GeminiProxy struct {
+	GeminiEngine *gemini.GeminiEngine
 }
 
 // TransformChatCompletionRequest passes through OpenAI requests with minimal transformation
 // since Google's endpoint is now OpenAI-compatible.
-func (p *VertexProxy) TransformChatCompletionRequest(reqBody openai_schema.IncomingChatCompletionRequest) ([]byte, error) {
-	logrus.Infof("Processing OpenAI request for Vertex AI (Model: %s)", reqBody.Model)
+func (p *GeminiProxy) TransformChatCompletionRequest(reqBody openai_schema.IncomingChatCompletionRequest) ([]byte, error) {
+	logrus.Infof("Processing OpenAI request for Gemini AI (Model: %s)", reqBody.Model)
 
-	// Clean up model name by removing vertex/ prefix if present
-	modelName := strings.TrimPrefix(reqBody.Model, "vertex/")
+	// Clean up model name by removing gemini/ prefix if present
+	modelName := strings.TrimPrefix(reqBody.Model, "gemini/")
 	logrus.Debugf("Model name after prefix removal: %s", modelName)
 	reqBody.Model = modelName
 
 	transformedBody, err := json.Marshal(reqBody)
 	if err != nil {
-		return nil, fmt.Errorf("error marshaling Vertex request: %w", err)
+		return nil, fmt.Errorf("error marshaling Gemini request: %w", err)
 	}
 
-	logrus.Debugf("Vertex AI request body: %s", string(transformedBody))
+	logrus.Debugf("Gemini AI request body: %s", string(transformedBody))
 	return transformedBody, nil
 }
 
 // HandleChatCompletionRequest sends the request to Google's OpenAI-compatible endpoint.
-func (p *VertexProxy) HandleChatCompletionRequest(ctx context.Context, model string, stream bool, transformedBody []byte) (*http.Response, error) {
+func (p *GeminiProxy) HandleChatCompletionRequest(ctx context.Context, model string, stream bool, transformedBody []byte) (*http.Response, error) {
 	// Create the HTTP request with the path that the engine expects
 	// The engine will modify the URL to point to the correct Google endpoint
-	endpoint := "/vertex/v1/chat/completions"
+	endpoint := "/gemini/v1/chat/completions"
 	
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(transformedBody))
 	if err != nil {
@@ -67,7 +67,7 @@ func (p *VertexProxy) HandleChatCompletionRequest(ctx context.Context, model str
 
 	// Set headers and let the engine handle URL modification and authentication
 	req.Header.Set("Content-Type", "application/json")
-	p.VertexEngine.ModifyRequest(req) // This sets the correct URL and adds Bearer token
+	p.GeminiEngine.ModifyRequest(req) // This sets the correct URL and adds Bearer token
 
 	// Build the final URL from the modified request
 	finalURL := req.URL.String()
@@ -103,7 +103,7 @@ func (p *VertexProxy) HandleChatCompletionRequest(ctx context.Context, model str
 }
 
 // SendChatCompletionResponse forwards the OpenAI-compatible response from Google to the client.
-func (p *VertexProxy) SendChatCompletionResponse(geminiResp *http.Response, w http.ResponseWriter, stream bool) error {
+func (p *GeminiProxy) SendChatCompletionResponse(geminiResp *http.Response, w http.ResponseWriter, stream bool) error {
 	defer geminiResp.Body.Close()
 
 	logrus.Infof("Received response from Google OpenAI endpoint (Status: %d, Stream: %t)", geminiResp.StatusCode, stream)

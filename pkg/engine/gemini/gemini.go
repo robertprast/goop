@@ -1,4 +1,4 @@
-package vertex
+package gemini
 
 import (
 	"context"
@@ -22,19 +22,19 @@ type BackendConfig struct {
 }
 
 var (
-	cachedVertexModels      []openai_schema.Model
-	cachedVertexModelsLock  sync.RWMutex
-	cachedVertexModelsTime  time.Time
-	vertexCacheValidityTime = 5 * time.Minute
+	cachedGeminiModels      []openai_schema.Model
+	cachedGeminiModelsLock  sync.RWMutex
+	cachedGeminiModelsTime  time.Time
+	geminiCacheValidityTime = 5 * time.Minute
 )
 
-type VertexEngine struct {
+type GeminiEngine struct {
 	backends []*BackendConfig
 	prefix   string
 	logger   *logrus.Entry
 }
 
-type vertexModelsResponse struct {
+type geminiModelsResponse struct {
 	Data []struct {
 		ID      string `json:"id"`
 		Object  string `json:"object"`
@@ -43,30 +43,29 @@ type vertexModelsResponse struct {
 	} `json:"data"`
 }
 
-func NewVertexEngine(_ string) (*VertexEngine, error) {
-	// Keep type/name to avoid changing other parts of your app.
+func NewGeminiEngine(_ string) (*GeminiEngine, error) {
 	u, _ := url.Parse("https://generativelanguage.googleapis.com")
-	return &VertexEngine{
+	return &GeminiEngine{
 		backends: []*BackendConfig{{BackendURL: u}},
-		prefix:   "/vertex",
+		prefix:   "/gemini",
 		logger:   logrus.WithField("e", "gemini-openai"),
 	}, nil
 }
 
-func (e *VertexEngine) Name() string { return "gemini-openai" }
+func (e *GeminiEngine) Name() string { return "gemini-openai" }
 
-func (e *VertexEngine) ListModels() ([]openai_schema.Model, error) {
+func (e *GeminiEngine) ListModels() ([]openai_schema.Model, error) {
 	// Check cache first
-	cachedVertexModelsLock.RLock()
-	if cachedVertexModels != nil && time.Since(cachedVertexModelsTime) < vertexCacheValidityTime {
-		defer cachedVertexModelsLock.RUnlock()
-		return cachedVertexModels, nil
+	cachedGeminiModelsLock.RLock()
+	if cachedGeminiModels != nil && time.Since(cachedGeminiModelsTime) < geminiCacheValidityTime {
+		defer cachedGeminiModelsLock.RUnlock()
+		return cachedGeminiModels, nil
 	}
-	cachedVertexModelsLock.RUnlock()
-	cachedVertexModelsLock.Lock()
-	defer cachedVertexModelsLock.Unlock()
-	if cachedVertexModels != nil && time.Since(cachedVertexModelsTime) < vertexCacheValidityTime {
-		return cachedVertexModels, nil
+	cachedGeminiModelsLock.RUnlock()
+	cachedGeminiModelsLock.Lock()
+	defer cachedGeminiModelsLock.Unlock()
+	if cachedGeminiModels != nil && time.Since(cachedGeminiModelsTime) < geminiCacheValidityTime {
+		return cachedGeminiModels, nil
 	}
 
 	apiKey := os.Getenv("GEMINI_API_KEY")
@@ -97,18 +96,18 @@ func (e *VertexEngine) ListModels() ([]openai_schema.Model, error) {
 
 	if resp.StatusCode != http.StatusOK {
 		bodyBytes, _ := io.ReadAll(resp.Body)
-		e.logger.Errorf("Vertex returned status code %d, body: %s", resp.StatusCode, string(bodyBytes))
-		return nil, fmt.Errorf("vertex returned status code %d", resp.StatusCode)
+		e.logger.Errorf("Gemini returned status code %d, body: %s", resp.StatusCode, string(bodyBytes))
+		return nil, fmt.Errorf("gemini returned status code %d", resp.StatusCode)
 	}
 
-	var vertexResp vertexModelsResponse
-	if err := json.NewDecoder(resp.Body).Decode(&vertexResp); err != nil {
-		e.logger.Errorf("failed to decode vertex models response: %v", err)
+	var geminiResp geminiModelsResponse
+	if err := json.NewDecoder(resp.Body).Decode(&geminiResp); err != nil {
+		e.logger.Errorf("failed to decode gemini models response: %v", err)
 		return nil, err
 	}
 
 	var models []openai_schema.Model
-	for _, model := range vertexResp.Data {
+	for _, model := range geminiResp.Data {
 		// Remove "models/" prefix if present
 		modelID := model.ID
 		if strings.HasPrefix(modelID, "models/") {
@@ -116,7 +115,7 @@ func (e *VertexEngine) ListModels() ([]openai_schema.Model, error) {
 		}
 		
 		models = append(models, openai_schema.Model{
-			ID:      fmt.Sprintf("vertex/%s", modelID),
+			ID:      fmt.Sprintf("gemini/%s", modelID),
 			Name:    modelID,
 			Object:  model.Object,
 			Created: model.Created,
@@ -125,14 +124,14 @@ func (e *VertexEngine) ListModels() ([]openai_schema.Model, error) {
 	}
 
 	// Update cache
-	cachedVertexModels = models
-	cachedVertexModelsTime = time.Now()
+	cachedGeminiModels = models
+	cachedGeminiModelsTime = time.Now()
 
-	e.logger.Infof("Found %d models from Vertex AI", len(models))
+	e.logger.Infof("Found %d models from Gemini API", len(models))
 	return models, nil
 }
 
-func (e *VertexEngine) IsAllowedPath(path string) bool {
+func (e *GeminiEngine) IsAllowedPath(path string) bool {
 	trimmed := strings.TrimPrefix(path, e.prefix)
 	if strings.Contains(trimmed, "/chat/completions") ||
 		strings.Contains(trimmed, "/responses") ||
@@ -144,7 +143,7 @@ func (e *VertexEngine) IsAllowedPath(path string) bool {
 	return false
 }
 
-func (e *VertexEngine) ModifyRequest(r *http.Request) {
+func (e *GeminiEngine) ModifyRequest(r *http.Request) {
 	apiKey := os.Getenv("GEMINI_API_KEY")
 	if apiKey == "" {
 		e.logger.Error("GEMINI_API_KEY must be set")
@@ -191,19 +190,19 @@ func (e *VertexEngine) ModifyRequest(r *http.Request) {
 	e.logger.Infof("Gemini OpenAI request → %s", r.URL.String())
 }
 
-func (e *VertexEngine) ResponseCallback(resp *http.Response, body io.Reader) {
+func (e *GeminiEngine) ResponseCallback(resp *http.Response, body io.Reader) {
 	id, _ := resp.Request.Context().Value(engine.RequestId).(string)
 	logrus.Infof("Response [HTTP %d] Correlation ID: %s Body Length: %d",
 		resp.StatusCode, id, resp.ContentLength)
 }
 
-func (e *VertexEngine) GetBackendURL() string {
+func (e *GeminiEngine) GetBackendURL() string {
 	if len(e.backends) == 0 || e.backends[0].BackendURL == nil {
 		return ""
 	}
 	return e.backends[0].BackendURL.String()
 }
 
-func (e *VertexEngine) GetProjectID() string {
+func (e *GeminiEngine) GetProjectID() string {
 	return "" // not used in Gemini OpenAI mode
 }

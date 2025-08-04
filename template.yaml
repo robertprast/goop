@@ -55,6 +55,8 @@ Resources:
                 Action:
                   - bedrock:InvokeModel
                   - bedrock:InvokeModelWithResponseStream
+                  - bedrock:ListFoundationModels
+                  - bedrock:ListInferenceProfiles
                 Resource:
                   - !Ref BedrockInferenceProfileArn
 
