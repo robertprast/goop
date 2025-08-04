@@ -10,7 +10,8 @@ import (
 )
 
 type Config struct {
-	Engines map[string]string `yaml:"engines"`
+	Engines     map[string]string `yaml:"engines"`
+	DatabaseURL string            `yaml:"database_url"`
 }
 
 // LoadConfig reads the config file, substitutes environment variables, and converts engine configs to strings

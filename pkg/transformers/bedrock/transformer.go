@@ -193,6 +193,32 @@ func buildInferenceConfig(reqBody openai_schema.IncomingChatCompletionRequest) b
 	return config
 }
 
+// buildThinkingConfig generates a Bedrock-compatible thinking configuration from the OpenAI reasoning_effort parameter.
+func buildThinkingConfig(reqBody openai_schema.IncomingChatCompletionRequest) *bedrock.ThinkingConfig {
+	if reqBody.ReasoningEffort == nil {
+		return nil
+	}
+
+	// Map reasoning_effort levels to appropriate token budgets
+	var budgetTokens int
+	switch *reqBody.ReasoningEffort {
+	case "low":
+		budgetTokens = 2048
+	case "medium":
+		budgetTokens = 8192
+	case "high":
+		budgetTokens = 32768
+	default:
+		logrus.Warnf("Unknown reasoning_effort level: %s, defaulting to medium", *reqBody.ReasoningEffort)
+		budgetTokens = 8192
+	}
+
+	return &bedrock.ThinkingConfig{
+		Type:         "enabled",
+		BudgetTokens: budgetTokens,
+	}
+}
+
 func processStreamingEvent(event eventstream.Message, w http.ResponseWriter) error {
 	eventType := getEventType(event.Headers)
 	switch eventType {
@@ -219,27 +245,33 @@ func handleContentBlockDelta(event eventstream.Message, w http.ResponseWriter) e
 	}
 	logrus.Infof("Raw response from bedrock: %v", string(payload.Delta))
 
-	content, toolCall, err := extractContentOrToolCall(payload.Delta)
+	content, toolCall, thinking, err := extractContentOrToolCall(payload.Delta)
 	if err != nil {
 		return err
 	}
 
-	openAIChunk := createOpenAIChunk(content, toolCall)
+	openAIChunk := createOpenAIChunk(content, toolCall, thinking)
 	return sendOpenAIChunk(openAIChunk, w)
 }
 
-func extractContentOrToolCall(delta json.RawMessage) (string, *bedrock.ToolCall, error) {
+func extractContentOrToolCall(delta json.RawMessage) (string, *bedrock.ToolCall, string, error) {
 	var textDelta bedrock.TextDelta
 	if err := json.Unmarshal(delta, &textDelta); err == nil {
-		return textDelta.Value, nil, nil
+		return textDelta.Value, nil, "", nil
 	}
 
 	var toolCall bedrock.ToolCall
 	if err := json.Unmarshal(delta, &toolCall); err == nil {
-		return "", &toolCall, nil
+		return "", &toolCall, "", nil
 	}
 
-	return "", nil, fmt.Errorf("failed to unmarshal delta")
+	// Try to unmarshal as thinking delta
+	var thinkingDelta bedrock.Thinking
+	if err := json.Unmarshal(delta, &thinkingDelta); err == nil {
+		return "", nil, thinkingDelta.Text, nil
+	}
+
+	return "", nil, "", fmt.Errorf("failed to unmarshal delta")
 }
 
 func getEventType(headers []eventstream.Header) string {

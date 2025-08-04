@@ -1,0 +1,9 @@
+version = 0.1
+[default.deploy.parameters]
+stack_name = "goop"
+resolve_s3 = true
+s3_prefix = "goop"
+region = "us-east-1"
+capabilities = "CAPABILITY_IAM"
+parameter_overrides = "VpcId=\"vpc-0c8054ea8ca5b84a9\" DBUsername=\"goop_user\""
+image_repositories = ["GoopAPI=619557715640.dkr.ecr.us-east-1.amazonaws.com/goop8ccac78e/goopapi8734ff88repo"]

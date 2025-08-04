@@ -9,11 +9,20 @@ import (
 	"time"
 )
 
-func createOpenAIChunk(content string, toolCall *bedrock.ToolCall) map[string]interface{} {
+func createOpenAIChunk(content string, toolCall *bedrock.ToolCall, thinking string) map[string]interface{} {
 
 	delta := map[string]interface{}{}
 	if content != "" {
 		delta["content"] = content
+	}
+	if thinking != "" {
+		// Create content array for thinking blocks in streaming
+		delta["content"] = []map[string]interface{}{
+			{
+				"type":    "thinking",
+				"thinking": thinking,
+			},
+		}
 	}
 	if toolCall != nil {
 		delta["tool_calls"] = []map[string]interface{}{
@@ -68,6 +77,7 @@ func sendOpenAIChunk(openAIChunk map[string]interface{}, w http.ResponseWriter) 
 func createOpenAIResponse(bedrockBody bedrock.Response) map[string]interface{} {
 	messageContent := ""
 	var toolCalls []map[string]interface{}
+	var thinkingContent string
 
 	for _, item := range bedrockBody.Output.Message.Content {
 		if item.Text != "" {
@@ -84,11 +94,39 @@ func createOpenAIResponse(bedrockBody bedrock.Response) map[string]interface{} {
 			}
 			toolCalls = append(toolCalls, toolCall)
 		}
+		if item.Thinking != nil && item.Thinking.Text != "" {
+			thinkingContent += item.Thinking.Text
+		}
+	}
+
+	// Create content array similar to OpenAI format
+	var content []map[string]interface{}
+	
+	// Add thinking block if present
+	if thinkingContent != "" {
+		content = append(content, map[string]interface{}{
+			"type":    "thinking",
+			"thinking": thinkingContent,
+		})
+	}
+	
+	// Add text content if present
+	if messageContent != "" {
+		content = append(content, map[string]interface{}{
+			"type": "text",
+			"text": messageContent,
+		})
 	}
 
 	message := map[string]interface{}{
-		"role":    bedrockBody.Output.Message.Role,
-		"content": messageContent,
+		"role": bedrockBody.Output.Message.Role,
+	}
+
+	// Use content array if we have thinking, otherwise use simple content string for compatibility
+	if len(content) > 0 && thinkingContent != "" {
+		message["content"] = content
+	} else {
+		message["content"] = messageContent
 	}
 
 	if len(toolCalls) > 0 {

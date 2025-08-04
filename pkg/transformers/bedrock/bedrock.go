@@ -53,6 +53,11 @@ func (e *BedrockProxy) TransformChatCompletionRequest(reqBody openai_schema.Inco
 		bedrockRequest.ToolConfig = toolConfig
 	}
 
+	thinkingConfig := buildThinkingConfig(reqBody)
+	if thinkingConfig != nil {
+		bedrockRequest.Thinking = thinkingConfig
+	}
+
 	return json.Marshal(bedrockRequest)
 }
 

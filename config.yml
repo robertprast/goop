@@ -21,3 +21,6 @@ engines:
     enabled: true
     region: us-east-1
 
+# Database configuration (optional - will use DATABASE_URL env var if not specified)
+database_url: "${DATABASE_URL}"
+

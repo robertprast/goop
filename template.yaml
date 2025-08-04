@@ -1,0 +1,212 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  GOOP API + API key auth
+
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: The ID of the VPC where Aurora will be deployed (using default subnets).
+    Default: vpc-0c8054ea8ca5b84a9
+
+  DBUsername:
+    Type: String
+    Default: goop_user
+    Description: Master username for the Aurora cluster.
+
+  DBName:
+    Type: String
+    Default: goop
+    Description: Initial database name.
+
+  PostgresEngineVersion:
+    Type: String
+    Default: '15.4'
+    Description: PostgreSQL engine version (e.g., 15.4).
+
+  BedrockInferenceProfileArn:
+    Type: String
+    Default: '*'
+    Description: Inference profile ARN your function will invoke.
+
+Resources:
+  ############################################################
+  # Security group for Aurora (publicly accessible)
+  ############################################################
+  GoopRDSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow Postgres access from anywhere (public)
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          CidrIp: 0.0.0.0/0
+          Description: Allow PostgreSQL access from anywhere
+      Tags:
+        - Key: Name
+          Value: goop-aurora-public-sg
+
+  ############################################################
+  # Subnet group for Aurora (using default public subnets)
+  ############################################################
+  DatabaseSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Subnet group for Goop Aurora PostgreSQL (public)
+      SubnetIds:
+        - subnet-0d55add9aa8a8fea3
+        - subnet-0f22825c26bca6673
+      Tags:
+        - Key: Name
+          Value: goop-aurora-subnet-group
+
+  ############################################################
+  # Secrets: alphanumeric master password
+  ############################################################
+  DatabaseSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: goop/db/credentials
+      Description: "Master credentials for Aurora"
+      GenerateSecretString:
+        SecretStringTemplate: !Sub '{"username":"${DBUsername}"}'
+        GenerateStringKey: password
+        PasswordLength: 24
+        ExcludePunctuation: true
+        ExcludeLowercase: false
+        ExcludeUppercase: false
+        ExcludeNumbers: false
+        IncludeSpace: false
+        RequireEachIncludedType: false
+        ExcludeCharacters: '0"@/\''`~!#$%^&*()+={}[]|:;<>,.?-_'
+
+  ############################################################
+  # RDS PostgreSQL t4g.micro - PUBLIC (Free Tier Eligible)
+  ############################################################
+  DatabaseInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBInstanceIdentifier: goop-postgres
+      DBInstanceClass: db.t4g.micro
+      Engine: postgres
+      EngineVersion: '17.5'
+      AllocatedStorage: 20
+      StorageType: gp2
+      DBName: !Ref DBName
+      MasterUsername: !Ref DBUsername
+      MasterUserPassword: !Sub '{{resolve:secretsmanager:${DatabaseSecret}:SecretString:password}}'
+      VPCSecurityGroups:
+        - !Ref GoopRDSSecurityGroup
+      DBSubnetGroupName: !Ref DatabaseSubnetGroup
+      PubliclyAccessible: true
+      BackupRetentionPeriod: 1
+      StorageEncrypted: false
+      DeletionProtection: false
+      AutoMinorVersionUpgrade: true
+      EnableCloudwatchLogsExports:
+        - postgresql
+      Tags:
+        - Key: Name
+          Value: goop-postgres-instance
+
+
+  ############################################################
+  # IAM role for Lambda (minimal permissions)
+  ############################################################
+  GoopLambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: SecretsAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource:
+                  - !Ref DatabaseSecret
+                  - !Ref DatabaseUrlSecret
+        - PolicyName: BedrockInvokeModelAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - bedrock:InvokeModel
+                  - bedrock:InvokeModelWithResponseStream
+                Resource:
+                  - !Ref BedrockInferenceProfileArn
+
+  ############################################################
+  # DATABASE_URL Secret (placeholder - update in console after deployment)
+  ############################################################
+  DatabaseUrlSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: goop/db/database-url
+      Description: "DATABASE_URL for Goop application - UPDATE THIS AFTER DEPLOYMENT"
+      SecretString: !Sub |
+        {
+          "DATABASE_URL": "PLACEHOLDER_UPDATE_IN_CONSOLE"
+        }
+
+  ############################################################
+  # Lambda function (OUTSIDE VPC for cheapest setup)
+  ############################################################
+  GoopAPI:
+    Type: AWS::Serverless::Function
+    Properties:
+      PackageType: Image
+      Architectures:
+        - x86_64
+      Timeout: 30
+      MemorySize: 256
+      Role: !GetAtt GoopLambdaExecutionRole.Arn
+      Environment:
+        Variables:
+          AWS_LWA_INVOKE_MODE: response_stream
+          AWS_LWA_READINESS_CHECK_PROTOCOL: "tcp"
+          PORT: "8080"
+          DATABASE_URL: !Sub '{{resolve:secretsmanager:goop/db/database-url:SecretString:DATABASE_URL}}'
+      FunctionUrlConfig:
+        InvokeMode: RESPONSE_STREAM
+        AuthType: NONE
+        Cors:
+          AllowOrigins:
+            - '*'
+          AllowMethods:
+            - GET
+            - POST
+            - PUT
+            - DELETE
+          AllowHeaders:
+            - 'Content-Type'
+            - 'X-Amz-Date'
+            - 'Authorization'
+            - 'X-Api-Key'
+            - 'X-Amz-Security-Token'
+          MaxAge: 600
+    Metadata:
+      DockerTag: goop-lambda-image
+      DockerContext: .
+      Dockerfile: Dockerfile.lambda
+
+Outputs:
+  DatabaseEndpoint:
+    Description: "RDS PostgreSQL endpoint - PUBLICLY ACCESSIBLE"
+    Value: !GetAtt DatabaseInstance.Endpoint.Address
+
+  DatabasePort:
+    Description: "RDS PostgreSQL port"
+    Value: !GetAtt DatabaseInstance.Endpoint.Port
