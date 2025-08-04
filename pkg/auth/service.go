@@ -1,36 +1,36 @@
 package auth
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
-	"database/sql"
 	"encoding/hex"
 	"fmt"
 	"strings"
 	"time"
 
-	"github.com/jmoiron/sqlx"
-	_ "github.com/lib/pq"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // Service handles authentication operations
 type Service struct {
-	db *sqlx.DB
+	db *pgxpool.Pool
 }
 
 // NewService creates a new auth service
-func NewService(db *sqlx.DB) *Service {
+func NewService(db *pgxpool.Pool) *Service {
 	return &Service{db: db}
 }
 
 // InitDB initializes the database connection and creates tables
-func InitDB(databaseURL string) (*sqlx.DB, error) {
-	db, err := sqlx.Connect("postgres", databaseURL)
+func InitDB(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {
+	db, err := pgxpool.New(ctx, databaseURL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to database: %w", err)
 	}
 
-	if err := createTables(db); err != nil {
+	if err := createTables(ctx, db); err != nil {
 		return nil, fmt.Errorf("failed to create tables: %w", err)
 	}
 
@@ -38,7 +38,7 @@ func InitDB(databaseURL string) (*sqlx.DB, error) {
 }
 
 // createTables creates the necessary database tables with security constraints
-func createTables(db *sqlx.DB) error {
+func createTables(ctx context.Context, db *pgxpool.Pool) error {
 	schema := `
 	CREATE TABLE IF NOT EXISTS api_keys (
 		id SERIAL PRIMARY KEY,
@@ -78,7 +78,7 @@ func createTables(db *sqlx.DB) error {
 		EXECUTE FUNCTION update_updated_at_column();
 	`
 
-	_, err := db.Exec(schema)
+	_, err := db.Exec(ctx, schema)
 	return err
 }
 
@@ -98,7 +98,7 @@ func hashAPIKey(key string) string {
 }
 
 // CreateAPIKey creates a new API key with validation
-func (s *Service) CreateAPIKey(name string, role Role) (*APIKeyResponse, error) {
+func (s *Service) CreateAPIKey(ctx context.Context, name string, role Role) (*APIKeyResponse, error) {
 	// Input validation
 	if err := s.validateAPIKeyInput(name, role); err != nil {
 		return nil, err
@@ -120,7 +120,10 @@ func (s *Service) CreateAPIKey(name string, role Role) (*APIKeyResponse, error) 
 	`
 
 	var apiKey APIKey
-	err = s.db.QueryRowx(query, keyHash, name, role, true, now, now).StructScan(&apiKey)
+	err = s.db.QueryRow(ctx, query, keyHash, name, role, true, now, now).Scan(
+		&apiKey.ID, &apiKey.Name, &apiKey.Role, &apiKey.IsActive,
+		&apiKey.CreatedAt, &apiKey.UpdatedAt, &apiKey.LastUsedAt,
+	)
 	if err != nil {
 		// Check for unique constraint violation (duplicate key hash - extremely unlikely but possible)
 		if strings.Contains(err.Error(), "unique") || strings.Contains(err.Error(), "duplicate") {
@@ -128,6 +131,8 @@ func (s *Service) CreateAPIKey(name string, role Role) (*APIKeyResponse, error) 
 		}
 		return nil, fmt.Errorf("failed to create API key: %w", err)
 	}
+
+	apiKey.KeyHash = keyHash
 
 	return &APIKeyResponse{
 		APIKey: apiKey,
@@ -160,7 +165,7 @@ func (s *Service) validateAPIKeyInput(name string, role Role) error {
 }
 
 // ValidateAPIKey validates an API key and returns the associated user info
-func (s *Service) ValidateAPIKey(key string) (*APIKey, error) {
+func (s *Service) ValidateAPIKey(ctx context.Context, key string) (*APIKey, error) {
 	// Input validation to prevent empty/malicious keys
 	if strings.TrimSpace(key) == "" {
 		return nil, fmt.Errorf("invalid API key")
@@ -186,29 +191,32 @@ func (s *Service) ValidateAPIKey(key string) (*APIKey, error) {
 	`
 
 	var apiKey APIKey
-	err := s.db.Get(&apiKey, query, keyHash)
+	err := s.db.QueryRow(ctx, query, keyHash).Scan(
+		&apiKey.ID, &apiKey.KeyHash, &apiKey.Name, &apiKey.Role,
+		&apiKey.IsActive, &apiKey.CreatedAt, &apiKey.UpdatedAt, &apiKey.LastUsedAt,
+	)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if err == pgx.ErrNoRows {
 			return nil, fmt.Errorf("invalid API key")
 		}
 		return nil, fmt.Errorf("failed to validate API key: %w", err)
 	}
 
 	// Update last_used_at asynchronously to avoid blocking the response
-	go s.updateLastUsed(apiKey.ID)
+	go s.updateLastUsed(context.Background(), apiKey.ID)
 
 	return &apiKey, nil
 }
 
 // updateLastUsed updates the last_used_at timestamp for an API key
-func (s *Service) updateLastUsed(keyID int) {
+func (s *Service) updateLastUsed(ctx context.Context, keyID int) {
 	// Validate keyID to prevent negative or zero values
 	if keyID <= 0 {
 		return
 	}
 
 	query := `UPDATE api_keys SET last_used_at = NOW() WHERE id = $1`
-	if _, err := s.db.Exec(query, keyID); err != nil {
+	if _, err := s.db.Exec(ctx, query, keyID); err != nil {
 		// Log error but don't fail the request
 		// In a production environment, you'd want to use a proper logger
 		// For now, we'll silently handle the error to avoid blocking the main flow
@@ -217,24 +225,41 @@ func (s *Service) updateLastUsed(keyID int) {
 }
 
 // GetAPIKeys retrieves all API keys (admin only)
-func (s *Service) GetAPIKeys() ([]APIKey, error) {
+func (s *Service) GetAPIKeys(ctx context.Context) ([]APIKey, error) {
 	query := `
 		SELECT id, key_hash, name, role, is_active, created_at, updated_at, last_used_at
 		FROM api_keys
 		ORDER BY created_at DESC
 	`
 
-	var keys []APIKey
-	err := s.db.Select(&keys, query)
+	rows, err := s.db.Query(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get API keys: %w", err)
+	}
+	defer rows.Close()
+
+	var keys []APIKey
+	for rows.Next() {
+		var apiKey APIKey
+		err := rows.Scan(
+			&apiKey.ID, &apiKey.KeyHash, &apiKey.Name, &apiKey.Role,
+			&apiKey.IsActive, &apiKey.CreatedAt, &apiKey.UpdatedAt, &apiKey.LastUsedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan API key: %w", err)
+		}
+		keys = append(keys, apiKey)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate over API keys: %w", err)
 	}
 
 	return keys, nil
 }
 
 // GetAPIKey retrieves a specific API key by ID with validation
-func (s *Service) GetAPIKey(id int) (*APIKey, error) {
+func (s *Service) GetAPIKey(ctx context.Context, id int) (*APIKey, error) {
 	// Validate ID
 	if id <= 0 {
 		return nil, fmt.Errorf("invalid API key ID")
@@ -247,9 +272,12 @@ func (s *Service) GetAPIKey(id int) (*APIKey, error) {
 	`
 
 	var apiKey APIKey
-	err := s.db.Get(&apiKey, query, id)
+	err := s.db.QueryRow(ctx, query, id).Scan(
+		&apiKey.ID, &apiKey.KeyHash, &apiKey.Name, &apiKey.Role,
+		&apiKey.IsActive, &apiKey.CreatedAt, &apiKey.UpdatedAt, &apiKey.LastUsedAt,
+	)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if err == pgx.ErrNoRows {
 			return nil, fmt.Errorf("API key not found")
 		}
 		return nil, fmt.Errorf("failed to get API key: %w", err)
@@ -258,112 +286,21 @@ func (s *Service) GetAPIKey(id int) (*APIKey, error) {
 	return &apiKey, nil
 }
 
-// UpdateAPIKey updates an API key with validation
-func (s *Service) UpdateAPIKey(id int, req UpdateAPIKeyRequest) (*APIKey, error) {
-	// Validate ID
-	if id <= 0 {
-		return nil, fmt.Errorf("invalid API key ID")
-	}
-
-	// Validate input parameters
-	if req.Name != nil {
-		name := strings.TrimSpace(*req.Name)
-		if name == "" {
-			return nil, fmt.Errorf("name cannot be empty")
-		}
-		if len(name) > 255 {
-			return nil, fmt.Errorf("name cannot exceed 255 characters")
-		}
-		// Check for potential SQL injection patterns in name (defense in depth)
-		if strings.ContainsAny(name, "';\"--/*") {
-			return nil, fmt.Errorf("name contains invalid characters")
-		}
-		// Update the request with trimmed name
-		*req.Name = name
-	}
-
-	if req.Role != nil && *req.Role != RoleAdmin && *req.Role != RoleUser {
-		return nil, fmt.Errorf("invalid role: must be 'admin' or 'user'")
-	}
-
-	// Build the update query with proper parameterization
-	setParts := []string{}
-	args := []interface{}{}
-	argIndex := 1
-
-	if req.Name != nil {
-		setParts = append(setParts, "name = $"+fmt.Sprintf("%d", argIndex))
-		args = append(args, *req.Name)
-		argIndex++
-	}
-
-	if req.Role != nil {
-		setParts = append(setParts, "role = $"+fmt.Sprintf("%d", argIndex))
-		args = append(args, *req.Role)
-		argIndex++
-	}
-
-	if req.IsActive != nil {
-		setParts = append(setParts, "is_active = $"+fmt.Sprintf("%d", argIndex))
-		args = append(args, *req.IsActive)
-		argIndex++
-	}
-
-	if len(setParts) == 0 {
-		return s.GetAPIKey(id) // No changes, just return the current key
-	}
-
-	// Always update the updated_at timestamp
-	setParts = append(setParts, "updated_at = NOW()")
-
-	// Build the final query with proper parameterization
-	setClause := ""
-	for i, part := range setParts {
-		if i > 0 {
-			setClause += ", "
-		}
-		setClause += part
-	}
-
-	query := `
-		UPDATE api_keys
-		SET ` + setClause + `
-		WHERE id = $` + fmt.Sprintf("%d", argIndex) + `
-		RETURNING id, key_hash, name, role, is_active, created_at, updated_at, last_used_at
-	`
-
-	args = append(args, id)
-
-	var apiKey APIKey
-	err := s.db.QueryRowx(query, args...).StructScan(&apiKey)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return nil, fmt.Errorf("API key not found")
-		}
-		return nil, fmt.Errorf("failed to update API key: %w", err)
-	}
-
-	return &apiKey, nil
-}
 
 // DeleteAPIKey deletes an API key with validation
-func (s *Service) DeleteAPIKey(id int) error {
+func (s *Service) DeleteAPIKey(ctx context.Context, id int) error {
 	// Validate ID
 	if id <= 0 {
 		return fmt.Errorf("invalid API key ID")
 	}
 
 	query := `DELETE FROM api_keys WHERE id = $1`
-	result, err := s.db.Exec(query, id)
+	result, err := s.db.Exec(ctx, query, id)
 	if err != nil {
 		return fmt.Errorf("failed to delete API key: %w", err)
 	}
 
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("failed to get rows affected: %w", err)
-	}
-
+	rowsAffected := result.RowsAffected()
 	if rowsAffected == 0 {
 		return fmt.Errorf("API key not found")
 	}

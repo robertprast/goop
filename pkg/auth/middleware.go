@@ -119,7 +119,7 @@ func (m *Middleware) extractAndValidateAPIKey(r *http.Request) (*APIKey, error) 
 		return nil, &AuthError{Message: "invalid API key"}
 	}
 
-	apiKey, err := m.service.ValidateAPIKey(token)
+	apiKey, err := m.service.ValidateAPIKey(r.Context(), token)
 	if err != nil {
 		return nil, &AuthError{Message: "invalid API key", Cause: err}
 	}

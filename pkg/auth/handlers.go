@@ -65,7 +65,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		case http.MethodGet:
 			h.getAPIKey(w, r, id)
 		case http.MethodPut:
-			h.updateAPIKey(w, r, id)
+			http.Error(w, "Method not allowed - use DELETE and POST to replace keys", http.StatusMethodNotAllowed)
 		case http.MethodDelete:
 			h.deleteAPIKey(w, r, id)
 		default:
@@ -78,7 +78,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // listAPIKeys handles GET /admin/keys
 func (h *Handler) listAPIKeys(w http.ResponseWriter, r *http.Request) {
-	keys, err := h.service.GetAPIKeys()
+	keys, err := h.service.GetAPIKeys(r.Context())
 	if err != nil {
 		h.logger.WithError(err).Error("Failed to list API keys")
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
@@ -133,7 +133,7 @@ func (h *Handler) createAPIKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	response, err := h.service.CreateAPIKey(req.Name, req.Role)
+	response, err := h.service.CreateAPIKey(r.Context(), req.Name, req.Role)
 	if err != nil {
 		h.logger.WithError(err).Error("Failed to create API key")
 		if strings.Contains(err.Error(), "invalid") || strings.Contains(err.Error(), "duplicate") {
@@ -153,7 +153,7 @@ func (h *Handler) createAPIKey(w http.ResponseWriter, r *http.Request) {
 
 // getAPIKey handles GET /admin/keys/{id}
 func (h *Handler) getAPIKey(w http.ResponseWriter, r *http.Request, id int) {
-	key, err := h.service.GetAPIKey(id)
+	key, err := h.service.GetAPIKey(r.Context(), id)
 	if err != nil {
 		if strings.Contains(err.Error(), "not found") {
 			http.Error(w, "API key not found", http.StatusNotFound)
@@ -171,79 +171,10 @@ func (h *Handler) getAPIKey(w http.ResponseWriter, r *http.Request, id int) {
 	}
 }
 
-// updateAPIKey handles PUT /admin/keys/{id}
-func (h *Handler) updateAPIKey(w http.ResponseWriter, r *http.Request, id int) {
-	// Validate ID
-	if id <= 0 {
-		http.Error(w, "Invalid key ID", http.StatusBadRequest)
-		return
-	}
-
-	// Check Content-Type
-	if r.Header.Get("Content-Type") != "application/json" {
-		http.Error(w, "Content-Type must be application/json", http.StatusBadRequest)
-		return
-	}
-
-	var req UpdateAPIKeyRequest
-	decoder := json.NewDecoder(r.Body)
-	decoder.DisallowUnknownFields()
-
-	if err := decoder.Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
-		return
-	}
-
-	// Validate role if provided
-	if req.Role != nil && *req.Role != RoleAdmin && *req.Role != RoleUser {
-		http.Error(w, "Invalid role. Must be 'admin' or 'user'", http.StatusBadRequest)
-		return
-	}
-
-	// Validate name if provided
-	if req.Name != nil {
-		name := strings.TrimSpace(*req.Name)
-		if name == "" {
-			http.Error(w, "Name cannot be empty", http.StatusBadRequest)
-			return
-		}
-		if len(name) > 255 {
-			http.Error(w, "Name cannot exceed 255 characters", http.StatusBadRequest)
-			return
-		}
-		// Check for potential injection patterns
-		if strings.ContainsAny(name, "';\"--/*<>") {
-			http.Error(w, "Name contains invalid characters", http.StatusBadRequest)
-			return
-		}
-		*req.Name = name // Update with trimmed name
-	}
-
-	key, err := h.service.UpdateAPIKey(id, req)
-	if err != nil {
-		if strings.Contains(err.Error(), "not found") {
-			http.Error(w, "API key not found", http.StatusNotFound)
-			return
-		}
-		if strings.Contains(err.Error(), "invalid") {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		h.logger.WithError(err).Error("Failed to update API key")
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(key); err != nil {
-		h.logger.WithError(err).Error("Failed to encode update API key response")
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-	}
-}
 
 // deleteAPIKey handles DELETE /admin/keys/{id}
 func (h *Handler) deleteAPIKey(w http.ResponseWriter, r *http.Request, id int) {
-	if err := h.service.DeleteAPIKey(id); err != nil {
+	if err := h.service.DeleteAPIKey(r.Context(), id); err != nil {
 		if strings.Contains(err.Error(), "not found") {
 			http.Error(w, "API key not found", http.StatusNotFound)
 			return

@@ -11,7 +11,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/jmoiron/sqlx"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/robertprast/goop/pkg/auth"
 	"github.com/robertprast/goop/pkg/proxy"
@@ -27,7 +27,7 @@ type App struct {
 	Metrics          *proxy.Metrics
 	OpenProxyMetrics *proxy.OpenaiProxyMetrics
 	Healthy          int32
-	DB               *sqlx.DB
+	DB               *pgxpool.Pool
 	AuthService      *auth.Service
 	AuthMiddleware   *auth.Middleware
 }
@@ -85,7 +85,7 @@ func (app *App) InitDatabase() {
 		return
 	}
 
-	db, err := auth.InitDB(databaseURL)
+	db, err := auth.InitDB(context.Background(), databaseURL)
 	if err != nil {
 		app.Logger.Fatalf("Error initializing database: %v", err)
 	}
@@ -210,9 +210,8 @@ func (app *App) StartServer() error {
 
 		// Close database connection if it exists
 		if app.DB != nil {
-			if err := app.DB.Close(); err != nil {
-				app.Logger.WithError(err).Warn("Error closing database connection")
-			}
+			app.DB.Close()
+			app.Logger.Info("Database connection closed")
 		}
 	}
 
