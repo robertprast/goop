@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"os"
 	"os/signal"
@@ -10,7 +11,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/robertprast/goop/pkg/auth"
 	"github.com/robertprast/goop/pkg/proxy"
 	"github.com/robertprast/goop/pkg/utils"
 	"github.com/sirupsen/logrus"
@@ -24,6 +27,9 @@ type App struct {
 	Metrics          *proxy.Metrics
 	OpenProxyMetrics *proxy.OpenaiProxyMetrics
 	Healthy          int32
+	DB               *pgxpool.Pool
+	AuthService      *auth.Service
+	AuthMiddleware   *auth.Middleware
 }
 
 func main() {
@@ -36,16 +42,24 @@ func main() {
 	// Initialize components
 	app.InitLogger()
 	app.InitConfig("config.yml")
+	app.InitDatabase()
+	app.InitAuth()
 	app.InitHealth()
 	app.InitRouter()
 
-	// Start the server with graceful shutdown
-	app.StartServer()
+	// Start the server and block until it shuts down.
+	if err := app.StartServer(); err != nil {
+		app.Logger.Fatalf("Server failed to start or shut down gracefully: %v", err)
+	}
+
+	app.Logger.Info("Server has been stopped gracefully.")
 }
 
 // InitLogger sets up the Logrus logger
 func (app *App) InitLogger() {
-	app.Logger.SetFormatter(&logrus.TextFormatter{})
+	app.Logger.SetFormatter(&logrus.TextFormatter{
+		FullTimestamp: true,
+	})
 	app.Logger.SetLevel(logrus.InfoLevel)
 }
 
@@ -56,6 +70,37 @@ func (app *App) InitConfig(configPath string) {
 		app.Logger.Fatalf("Error loading configuration: %v", err)
 	}
 	app.Config = &config
+}
+
+// InitDatabase initializes the database connection
+func (app *App) InitDatabase() {
+	// Get database URL from environment variable or config
+	databaseURL := os.Getenv("DATABASE_URL")
+	if databaseURL == "" && app.Config.DatabaseURL != "" {
+		databaseURL = app.Config.DatabaseURL
+	}
+
+	if databaseURL == "" {
+		app.Logger.Warn("No database URL configured, auth will be disabled")
+		return
+	}
+
+	db, err := auth.InitDB(context.Background(), databaseURL)
+	if err != nil {
+		app.Logger.Fatalf("Error initializing database: %v", err)
+	}
+	app.DB = db
+}
+
+// InitAuth initializes the authentication service and middleware
+func (app *App) InitAuth() {
+	if app.DB == nil {
+		app.Logger.Warn("Database not initialized, auth will be disabled")
+		return
+	}
+
+	app.AuthService = auth.NewService(app.DB)
+	app.AuthMiddleware = auth.NewMiddleware(app.AuthService, app.Logger)
 }
 
 // InitHealth initializes health status
@@ -70,9 +115,22 @@ func (app *App) InitRouter() {
 	proxyHandler := proxy.NewProxyHandler(app.Config, app.Logger, app.Metrics)
 	openAIProxyHandler := proxy.NewHandler(app.Config, app.Logger, app.OpenProxyMetrics)
 
-	mux.Handle("/", proxyHandler)
-	mux.Handle("/openai-proxy/", openAIProxyHandler)
+	// Apply auth middleware to protected endpoints if auth is available
+	if app.AuthMiddleware != nil {
+		mux.HandleFunc("/", app.AuthMiddleware.RequireAuth(proxyHandler.ServeHTTP))
+		mux.HandleFunc("/openai-proxy/", app.AuthMiddleware.RequireAuth(openAIProxyHandler.ServeHTTP))
 
+		// Admin endpoints require admin role
+		adminHandler := auth.NewHandler(app.AuthService, app.Logger)
+		mux.HandleFunc("/admin/keys/", app.AuthMiddleware.RequireAdminAuth(adminHandler.ServeHTTP))
+		mux.HandleFunc("/admin/keys", app.AuthMiddleware.RequireAdminAuth(adminHandler.ServeHTTP))
+	} else {
+		// No auth - endpoints are unprotected
+		mux.Handle("/", proxyHandler)
+		mux.Handle("/openai-proxy/", openAIProxyHandler)
+	}
+
+	// Health and metrics endpoints are always unprotected
 	mux.HandleFunc("/healthz", app.healthHandler)
 	mux.Handle("/metrics", promhttp.Handler())
 
@@ -81,58 +139,81 @@ func (app *App) InitRouter() {
 
 // healthHandler handles the /healthz endpoint
 func (app *App) healthHandler(w http.ResponseWriter, r *http.Request) {
-	status := atomic.LoadInt32(&app.Healthy)
-	var response struct {
-		Status string `json:"status"`
+	// Set health to unhealthy during shutdown to prevent new requests
+	if atomic.LoadInt32(&app.Healthy) == 0 {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		return
 	}
 
-	if status == 1 {
-		response.Status = "healthy"
-		w.WriteHeader(http.StatusOK)
-	} else {
-		response.Status = "unhealthy"
-		w.WriteHeader(http.StatusServiceUnavailable)
+	response := struct {
+		Status string `json:"status"`
+	}{
+		Status: "healthy",
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	err := json.NewEncoder(w).Encode(response)
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		return
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		// Log the error but don't try to write another header
+		app.Logger.Errorf("Error writing healthz response: %v", err)
 	}
 }
 
-// StartServer starts the HTTP server and handles graceful shutdown
-func (app *App) StartServer() {
+// StartServer starts the HTTP server and handles graceful shutdown.
+func (app *App) StartServer() error {
+	// Channel to listen for OS signals for shutdown
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
+
+	// Determine port from environment or default to 8080
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+
 	srv := &http.Server{
-		Addr:    ":8080",
+		Addr:    ":" + port,
 		Handler: app.Router,
 	}
 
-	// Channel to listen for interrupt or terminate signals
-	stop := make(chan os.Signal, 1)
-	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
+	// Channel to listen for server errors
+	serverErrors := make(chan error, 1)
 
+	// Start the server in a goroutine
 	go func() {
-		app.Logger.Info("Starting engine_proxy server on :8080")
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			app.Logger.Fatalf("ListenAndServe error: %v", err)
-		}
+		app.Logger.Infof("Starting server on port %s", port)
+		serverErrors <- srv.ListenAndServe()
 	}()
 
-	// Block until a signal is received
-	<-stop
+	// Block until we receive a shutdown signal or a server error
+	select {
+	case err := <-serverErrors:
+		if !errors.Is(err, http.ErrServerClosed) {
+			return err
+		}
+	case sig := <-stop:
+		app.Logger.Infof("Shutdown signal received: %s", sig)
 
-	// Set health to unhealthy
-	atomic.StoreInt32(&app.Healthy, 0)
+		// Set health status to unhealthy to stop receiving new traffic
+		atomic.StoreInt32(&app.Healthy, 0)
+		app.Logger.Info("Health status set to unhealthy.")
 
-	// Create a deadline to wait for graceful shutdown
-	app.Logger.Info("Shutting down server...")
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if err := srv.Shutdown(ctx); err != nil {
-		app.Logger.Fatalf("Server Shutdown Failed:%+v", err)
+		// Create a context with a timeout for graceful shutdown.
+		// Lambda's shutdown phase is short, so this timeout should be brief.
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		// Attempt to gracefully shut down the server
+		if err := srv.Shutdown(ctx); err != nil {
+			return err
+		}
+
+		// Close database connection if it exists
+		if app.DB != nil {
+			app.DB.Close()
+			app.Logger.Info("Database connection closed")
+		}
 	}
 
-	app.Logger.Info("Server gracefully stopped")
+	return nil
 }

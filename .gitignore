@@ -4,3 +4,11 @@ bin/*
 .venv
 test.py
 .aider*
+
+.gcp_keys
+
+hack
+
+CLAUDE.md
+
+.aws-sam

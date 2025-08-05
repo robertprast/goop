@@ -36,8 +36,9 @@ type Response struct {
 }
 
 type ContentItem struct {
-	Text    string   `json:"text,omitempty"`
-	ToolUse *ToolUse `json:"toolUse,omitempty"`
+	Text     string    `json:"text,omitempty"`
+	ToolUse  *ToolUse  `json:"toolUse,omitempty"`
+	Thinking *Thinking `json:"thinking,omitempty"`
 }
 
 type ToolUse struct {
@@ -60,6 +61,7 @@ type Request struct {
 	InferenceConfig InferenceConfig `json:"inferenceConfig"`
 	System          []SystemMessage `json:"system"`
 	ToolConfig      *ToolConfig     `json:"toolConfig,omitempty"`
+	Thinking        *ThinkingConfig `json:"thinking,omitempty"`
 }
 
 type Message struct {
@@ -119,4 +121,14 @@ type ToolChoice struct {
 
 type ToolName struct {
 	Name string `json:"name"`
+}
+
+type ThinkingConfig struct {
+	Type         string `json:"type"`                    // Set to "enabled" to enable thinking
+	BudgetTokens int    `json:"budget_tokens,omitempty"` // Maximum number of tokens for reasoning
+}
+
+type Thinking struct {
+	Text      string `json:"thinking,omitempty"` // The thinking content
+	Signature string `json:"signature,omitempty"` // The signature for validation
 }

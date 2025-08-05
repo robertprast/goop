@@ -74,17 +74,17 @@ func NewBedrockEngine(configStr string) (*BedrockEngine, error) {
 	err := yaml.Unmarshal([]byte(configStr), &goopConfig)
 	if err != nil {
 		logrus.Errorf("Unable to unmarshal Bedrock config: %v", err)
-		return &BedrockEngine{}, err
+		return nil, err
 	}
 	if !goopConfig.Enabled {
-		logrus.Info("Bedrock e is disabled")
-		return &BedrockEngine{}, fmt.Errorf("e is disabled")
+		logrus.Info("Bedrock engine is disabled")
+		return nil, fmt.Errorf("engine is disabled")
 	}
 
 	cfg, err := awsconfig.LoadDefaultConfig(context.Background())
 	if err != nil {
 		logrus.Errorf("Unable to load AWS SDK config: %v", err)
-		return &BedrockEngine{}, err
+		return nil, err
 	}
 	var region string
 	if goopConfig.Region == "" {
@@ -143,7 +143,21 @@ func (e *BedrockEngine) ListModels() ([]openai_schema.Model, error) {
 		logrus.Errorf("failed to create request: %v", err)
 		return nil, err
 	}
-	e.SignRequest(req)
+	
+	// Sign request manually for bedrock service (not bedrock-runtime)
+	creds, err := e.awsConfig.Credentials.Retrieve(context.Background())
+	if err != nil {
+		logrus.Errorf("Failed to retrieve AWS credentials: %v", err)
+		return nil, err
+	}
+	
+	// For GET requests with no body
+	payloadHash := "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" // empty string SHA256
+	err = e.signer.SignHTTP(context.Background(), creds, req, payloadHash, "bedrock", e.Region, time.Now().UTC())
+	if err != nil {
+		logrus.Errorf("Failed to sign request: %v", err)
+		return nil, err
+	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		logrus.Errorf("failed to execute request: %v", err)

@@ -13,11 +13,14 @@ engines:
   #     base_url: "http://localhost:1234/v1"
   #     api_version: "2024-04-01-preview"
 
-  vertex:
+  gemini:
     enabled: true
     project_id: "encrypted-llm"
 
   bedrock:
     enabled: true
     region: us-east-1
+
+# Database configuration (optional - will use DATABASE_URL env var if not specified)
+database_url: "${DATABASE_URL}"
 

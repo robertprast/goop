@@ -29,6 +29,7 @@ type IncomingChatCompletionRequest struct {
 	User             *string        `json:"user,omitempty"`              // User identifier for personalization.
 	Tools            []FunctionTool `json:"tools,omitempty"`             // Tools available for the model.
 	ToolChoice       interface{}    `json:"tool_choice,omitempty"`       // Controls which (if any) tool is called by the model.
+	ReasoningEffort  *string        `json:"reasoning_effort,omitempty"`  // Controls reasoning effort level for extended thinking ("low", "medium", "high").
 }
 
 type ContentPart struct {

@@ -8,7 +8,7 @@ import (
 
 	"github.com/robertprast/goop/pkg/engine/azure"
 	"github.com/robertprast/goop/pkg/engine/openai"
-	"github.com/robertprast/goop/pkg/engine/vertex"
+	"github.com/robertprast/goop/pkg/engine/gemini"
 
 	"github.com/robertprast/goop/pkg/audit"
 	"github.com/robertprast/goop/pkg/engine"
@@ -96,8 +96,8 @@ func (h *ProxyHandler) engineMiddleware(next http.Handler) http.Handler {
 			eng, err = azure.NewAzureOpenAIEngineWithConfig(engineConfig)
 		case "bedrock":
 			eng, err = bedrock.NewBedrockEngine(engineConfig)
-		case "vertex":
-			eng, err = vertex.NewVertexEngine(engineConfig)
+		case "gemini":
+			eng, err = gemini.NewGeminiEngine(engineConfig)
 		default:
 			h.Metrics.ErrorsTotal.WithLabelValues(r.Method, r.URL.Path, "engine_not_found").Inc()
 			http.Error(w, "Engine not found", http.StatusNotFound)
@@ -143,9 +143,10 @@ func (h *ProxyHandler) reverseProxy(w http.ResponseWriter, r *http.Request) {
 		Director:       func(req *http.Request) {},
 		ModifyResponse: audit.Response,
 		Transport:      http.DefaultTransport,
+		FlushInterval:  -1, // Flush immediately as data arrives
 	}
 
-	flusher, ok := w.(http.Flusher)
+	_, ok := w.(http.Flusher)
 	if !ok {
 		h.Metrics.ErrorsTotal.WithLabelValues(r.Method, r.URL.Path, "streaming_not_supported").Inc()
 		http.Error(w, "Streaming not supported", http.StatusInternalServerError)
@@ -153,5 +154,4 @@ func (h *ProxyHandler) reverseProxy(w http.ResponseWriter, r *http.Request) {
 	}
 
 	proxy.ServeHTTP(w, r)
-	flusher.Flush()
 }
