@@ -12,3 +12,5 @@ hack
 CLAUDE.md
 
 .aws-sam
+.air.toml
+tmp/

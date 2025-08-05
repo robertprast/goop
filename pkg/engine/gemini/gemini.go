@@ -113,7 +113,7 @@ func (e *GeminiEngine) ListModels() ([]openai_schema.Model, error) {
 		if strings.HasPrefix(modelID, "models/") {
 			modelID = strings.TrimPrefix(modelID, "models/")
 		}
-		
+
 		models = append(models, openai_schema.Model{
 			ID:      fmt.Sprintf("gemini/%s", modelID),
 			Name:    modelID,
@@ -158,18 +158,13 @@ func (e *GeminiEngine) ModifyRequest(r *http.Request) {
 		version = "v1beta"
 	}
 
-	original := r.URL.Path
-	trimmed := strings.TrimPrefix(original, e.prefix)
-
-	// Accept a few ingress forms and normalize to /{version}/openai/<suffix>
-	suffix := strings.TrimPrefix(trimmed, "/openai-proxy/v1/")
-	if suffix == trimmed {
-		suffix = strings.TrimPrefix(trimmed, "/v1/")
-	}
-	if suffix == trimmed {
-		// If nothing matched, try from the absolute path (supports calling /v1/... directly)
-		suffix = strings.TrimPrefix(original, "/openai-proxy/v1/")
-		suffix = strings.TrimPrefix(suffix, "/v1/")
+	path := r.URL.Path
+	usingGeminiRawSchema := false
+	if strings.HasPrefix(path, e.prefix) {
+		e.logger.Infof("Rewriting path for Gemini OpenAI: %s\n", path)
+		path = strings.TrimPrefix(path, e.prefix)
+		path = strings.Replace(path, "/v1/", "/openai/", 1)
+		usingGeminiRawSchema = true
 	}
 
 	// Route to Gemini OpenAI layer
@@ -178,15 +173,21 @@ func (e *GeminiEngine) ModifyRequest(r *http.Request) {
 		e.logger.Errorf("Invalid GEMINI_OPENAI_BASE %q: %v", host, err)
 		return
 	}
-	r.URL.Path = "/" + version + "/openai/" + strings.TrimPrefix(suffix, "/")
+	r.URL.Path = path
 	r.Host = baseURL.Host
 	r.URL.Host = baseURL.Host
 	r.URL.Scheme = baseURL.Scheme
 
-	// Auth: Bearer <GEMINI_API_KEY>, not X-Goog-Api-Key for this OpenAI layer.
 	r.Header.Del("X-Goog-Api-Key")
-	r.Header.Set("Authorization", "Bearer "+apiKey)
-
+	r.Header.Del("Authorization")
+	r.Header.Set("Content-Type", "application/json")
+	if usingGeminiRawSchema {
+		// For raw Gemini schema, we need to set google headers
+		r.Header.Set("X-Goog-Api-Key", apiKey)
+	} else {
+		// For OpenAI-compatible schema, we use Authorization header
+		r.Header.Set("Authorization", "Bearer "+apiKey)
+	}
 	e.logger.Infof("Gemini OpenAI request → %s", r.URL.String())
 }
 
