@@ -11,10 +11,6 @@ import (
 
 	"github.com/robertprast/goop/pkg/audit"
 	"github.com/robertprast/goop/pkg/openai_schema"
-
-	"github.com/robertprast/goop/pkg/engine/bedrock"
-	"github.com/robertprast/goop/pkg/engine/openai"
-	"github.com/robertprast/goop/pkg/engine/gemini"
 	bedrockproxy "github.com/robertprast/goop/pkg/transformers/bedrock"
 	openaiproxy "github.com/robertprast/goop/pkg/transformers/openai"
 	geminiproxy "github.com/robertprast/goop/pkg/transformers/gemini"
@@ -36,17 +32,22 @@ type OpenAIProxyEngine interface {
 
 // OpenAIProxyHandler holds dependencies for the OpenAI proxy
 type OpenAIProxyHandler struct {
-	config  *utils.Config
-	logger  *logrus.Logger
-	metrics *OpenaiProxyMetrics
+	config      *utils.Config
+	logger      *logrus.Logger
+	metrics     *OpenaiProxyMetrics
+	engineCache *EngineCache
 }
 
 // NewHandler creates a new OpenAI proxy handler with logging and telemetry
 func NewHandler(config *utils.Config, logger *logrus.Logger, metrics *OpenaiProxyMetrics) http.Handler {
+	engineCache := NewEngineCache(config, logger)
+	engineCache.StartCleanupRoutine()
+	
 	handler := &OpenAIProxyHandler{
-		config:  config,
-		logger:  logger,
-		metrics: metrics,
+		config:      config,
+		logger:      logger,
+		metrics:     metrics,
+		engineCache: engineCache,
 	}
 	var finalHandler http.Handler = http.HandlerFunc(handler.ServeHTTP)
 	finalHandler = chainMiddlewares(finalHandler, handler.auditMiddleware, handler.loggingMiddleware)
@@ -131,54 +132,63 @@ func (h *OpenAIProxyHandler) handleModels(w http.ResponseWriter, r *http.Request
 	// Add Bedrock models if configured
 	if _, ok := h.config.Engines["bedrock"]; ok {
 		logrus.Infof("Bedrock config: %s", h.config.Engines["bedrock"])
-		bedrockEngine, err := bedrock.NewBedrockEngine(h.config.Engines["bedrock"])
+		proxyEngine, err := h.engineCache.GetEngine("bedrock", "bedrock/models")
 		if err != nil {
 			h.metrics.ErrorsTotal.WithLabelValues(r.Method, r.URL.Path, "bedrock model list error").Inc()
-			h.logger.Errorf("Error listing bedrock models: %v", err)
+			h.logger.Errorf("Error getting bedrock engine: %v", err)
 		} else {
-			bModels, err := bedrockEngine.ListModels()
-			if err != nil {
-				h.metrics.ErrorsTotal.WithLabelValues(r.Method, r.URL.Path, "bedrock model list error").Inc()
-				h.logger.Errorf("Error listing bedrock models: %v", err)
-			} else {
-				logrus.Infof("Got the models from bedrock %v", bModels)
-				models.Data = append(models.Data, bModels...)
+			// Extract underlying bedrock engine from proxy
+			if bedrockProxy, ok := proxyEngine.(*bedrockproxy.BedrockProxy); ok {
+				bModels, err := bedrockProxy.BedrockEngine.ListModels()
+				if err != nil {
+					h.metrics.ErrorsTotal.WithLabelValues(r.Method, r.URL.Path, "bedrock model list error").Inc()
+					h.logger.Errorf("Error listing bedrock models: %v", err)
+				} else {
+					logrus.Infof("Got the models from bedrock %v", bModels)
+					models.Data = append(models.Data, bModels...)
+				}
 			}
 		}
 	}
 
 	// Add OpenAI models if configured
 	if _, ok := h.config.Engines["openai"]; ok {
-		openaiEngine, err := openai.NewOpenAIEngineWithConfig(h.config.Engines["openai"])
+		proxyEngine, err := h.engineCache.GetEngine("openai", "openai/models")
 		if err != nil {
 			h.metrics.ErrorsTotal.WithLabelValues(r.Method, r.URL.Path, "openai model list error").Inc()
-			h.logger.Errorf("Error listing openai models: %v", err)
+			h.logger.Errorf("Error getting openai engine: %v", err)
 		} else {
-			oModels, err := openaiEngine.ListModels()
-			if err != nil {
-				h.metrics.ErrorsTotal.WithLabelValues(r.Method, r.URL.Path, "openai model list error").Inc()
-				h.logger.Errorf("Error listing openai models: %v", err)
-			} else {
-				logrus.Infof("Got the models from openai %v", oModels)
-				models.Data = append(models.Data, oModels...)
+			// Extract underlying openai engine from proxy
+			if openaiProxy, ok := proxyEngine.(*openaiproxy.OpenAIProxy); ok {
+				oModels, err := openaiProxy.OpenAIEngine.ListModels()
+				if err != nil {
+					h.metrics.ErrorsTotal.WithLabelValues(r.Method, r.URL.Path, "openai model list error").Inc()
+					h.logger.Errorf("Error listing openai models: %v", err)
+				} else {
+					logrus.Infof("Got the models from openai %v", oModels)
+					models.Data = append(models.Data, oModels...)
+				}
 			}
 		}
 	}
 
 	// Add Gemini models if configured
 	if _, ok := h.config.Engines["gemini"]; ok {
-		geminiEngine, err := gemini.NewGeminiEngine(h.config.Engines["gemini"])
+		proxyEngine, err := h.engineCache.GetEngine("gemini", "gemini/models")
 		if err != nil {
 			h.metrics.ErrorsTotal.WithLabelValues(r.Method, r.URL.Path, "gemini model list error").Inc()
-			h.logger.Errorf("Error listing gemini models: %v", err)
+			h.logger.Errorf("Error getting gemini engine: %v", err)
 		} else {
-			gModels, err := geminiEngine.ListModels()
-			if err != nil {
-				h.metrics.ErrorsTotal.WithLabelValues(r.Method, r.URL.Path, "gemini model list error").Inc()
-				h.logger.Errorf("Error listing gemini models: %v", err)
-			} else {
-				logrus.Infof("Got the models from gemini %v", gModels)
-				models.Data = append(models.Data, gModels...)
+			// Extract underlying gemini engine from proxy
+			if geminiProxy, ok := proxyEngine.(*geminiproxy.GeminiProxy); ok {
+				gModels, err := geminiProxy.GeminiEngine.ListModels()
+				if err != nil {
+					h.metrics.ErrorsTotal.WithLabelValues(r.Method, r.URL.Path, "gemini model list error").Inc()
+					h.logger.Errorf("Error listing gemini models: %v", err)
+				} else {
+					logrus.Infof("Got the models from gemini %v", gModels)
+					models.Data = append(models.Data, gModels...)
+				}
 			}
 		}
 	}
@@ -269,73 +279,50 @@ func (h *OpenAIProxyHandler) handleChatCompletionsInternal(w http.ResponseWriter
 
 // selectEngine selects the appropriate engine based on the model and records errors
 func (h *OpenAIProxyHandler) selectEngine(model string) (OpenAIProxyEngine, error) {
+	var engineType string
+	
 	switch {
 	case strings.HasPrefix(model, "openai/"):
+		engineType = "openai"
 		h.logger.Info("Selecting OpenAI engine")
-		openaiEngine, err := openai.NewOpenAIEngineWithConfig(h.config.Engines["openai"])
-		if err != nil {
-			h.metrics.ErrorsTotal.WithLabelValues("openai", model, "engine_init_error").Inc()
-			h.logger.Errorf("Error creating OpenAI engine: %v", err)
-			return nil, err
-		}
-		return &openaiproxy.OpenAIProxy{
-			OpenAIEngine: openaiEngine,
-		}, nil
 	case strings.HasPrefix(model, "bedrock/"):
+		engineType = "bedrock"
 		h.logger.Info("Selecting Bedrock engine")
-		bedrockEngine, err := bedrock.NewBedrockEngine(h.config.Engines["bedrock"])
-		if err != nil {
-			h.metrics.ErrorsTotal.WithLabelValues("bedrock", model, "engine_init_error").Inc()
-			h.logger.Errorf("Error creating Bedrock engine: %v", err)
-			return nil, err
-		}
-		return &bedrockproxy.BedrockProxy{
-			BedrockEngine: bedrockEngine,
-		}, nil
 	case strings.HasPrefix(model, "gemini/"):
+		engineType = "gemini"
 		h.logger.Info("Selecting Gemini AI engine")
-		geminiEngine, err := gemini.NewGeminiEngine(h.config.Engines["gemini"])
-		if err != nil {
-			h.metrics.ErrorsTotal.WithLabelValues("gemini", model, "engine_init_error").Inc()
-			h.logger.Errorf("Error creating Gemini engine: %v", err)
-			return nil, err
-		}
-		return &geminiproxy.GeminiProxy{
-			GeminiEngine: geminiEngine,
-		}, nil
 	// If no prefix is provided, try to infer the engine from available configurations
 	default:
 		// Check if it's a known OpenAI model (gpt-* models)
 		if strings.HasPrefix(model, "gpt-") || strings.HasPrefix(model, "text-") || strings.HasPrefix(model, "davinci") {
 			if _, ok := h.config.Engines["openai"]; ok {
+				engineType = "openai"
 				h.logger.Infof("Detected OpenAI model %s, selecting OpenAI engine", model)
-				openaiEngine, err := openai.NewOpenAIEngineWithConfig(h.config.Engines["openai"])
-				if err != nil {
-					h.metrics.ErrorsTotal.WithLabelValues("openai", model, "engine_init_error").Inc()
-					h.logger.Errorf("Error creating OpenAI engine: %v", err)
-					return nil, err
-				}
-				return &openaiproxy.OpenAIProxy{
-					OpenAIEngine: openaiEngine,
-				}, nil
+			} else {
+				h.metrics.ErrorsTotal.WithLabelValues("openai", model, "engine_not_configured").Inc()
+				return nil, fmt.Errorf("OpenAI engine not configured for model: %s", model)
 			}
-		}
-		// Check if it's a known Gemini model
-		if strings.HasPrefix(model, "gemini-") {
+		} else if strings.HasPrefix(model, "gemini-") {
 			if _, ok := h.config.Engines["gemini"]; ok {
+				engineType = "gemini"
 				h.logger.Infof("Detected Gemini model %s, selecting Gemini engine", model)
-				geminiEngine, err := gemini.NewGeminiEngine(h.config.Engines["gemini"])
-				if err != nil {
-					h.metrics.ErrorsTotal.WithLabelValues("gemini", model, "engine_init_error").Inc()
-					h.logger.Errorf("Error creating Gemini engine: %v", err)
-					return nil, err
-				}
-				return &geminiproxy.GeminiProxy{
-					GeminiEngine: geminiEngine,
-				}, nil
+			} else {
+				h.metrics.ErrorsTotal.WithLabelValues("gemini", model, "engine_not_configured").Inc()
+				return nil, fmt.Errorf("Gemini engine not configured for model: %s", model)
 			}
+		} else {
+			h.metrics.ErrorsTotal.WithLabelValues("unknown", model, "unsupported_model").Inc()
+			return nil, fmt.Errorf("unsupported model: %s. Use prefixes like openai/, bedrock/, or gemini/ to specify the engine", model)
 		}
-		h.metrics.ErrorsTotal.WithLabelValues("unknown", model, "unsupported_model").Inc()
-		return nil, fmt.Errorf("unsupported model: %s. Use prefixes like openai/, bedrock/, or gemini/ to specify the engine", model)
 	}
+	
+	// Use cached engine
+	proxyEngine, err := h.engineCache.GetEngine(engineType, model)
+	if err != nil {
+		h.metrics.ErrorsTotal.WithLabelValues(engineType, model, "engine_init_error").Inc()
+		h.logger.Errorf("Error getting cached engine for %s: %v", engineType, err)
+		return nil, err
+	}
+	
+	return proxyEngine, nil
 }

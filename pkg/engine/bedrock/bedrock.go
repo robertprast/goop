@@ -18,6 +18,7 @@ import (
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
 	"github.com/robertprast/goop/pkg/engine"
+	"github.com/robertprast/goop/pkg/utils"
 	"github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v2"
 )
@@ -33,14 +34,15 @@ var (
 )
 
 type BedrockEngine struct {
-	Backend *url.URL
-	Client  *bedrockruntime.Client
-	Region  string
+	Backend    *url.URL
+	Client     *bedrockruntime.Client
+	Region     string
 
-	whitelist []string
-	prefix    string
-	awsConfig aws.Config
-	signer    *v4.Signer
+	whitelist  []string
+	prefix     string
+	awsConfig  aws.Config
+	signer     *v4.Signer
+	httpClient *http.Client
 }
 
 type bedrockConfig struct {
@@ -106,13 +108,14 @@ func NewBedrockEngine(configStr string) (*BedrockEngine, error) {
 	client := bedrockruntime.NewFromConfig(cfg)
 
 	e := &BedrockEngine{
-		Backend:   url,
-		whitelist: []string{"/model/", "/invoke", "/converse", "/converse-stream"},
-		prefix:    "/bedrock",
-		awsConfig: cfg,
-		Client:    client,
-		signer:    v4.NewSigner(),
-		Region:    region,
+		Backend:    url,
+		whitelist:  []string{"/model/", "/invoke", "/converse", "/converse-stream"},
+		prefix:     "/bedrock",
+		awsConfig:  cfg,
+		Client:     client,
+		signer:     v4.NewSigner(),
+		Region:     region,
+		httpClient: utils.DefaultHTTPClient(),
 	}
 	return e, nil
 }
@@ -158,7 +161,7 @@ func (e *BedrockEngine) ListModels() ([]openai_schema.Model, error) {
 		logrus.Errorf("Failed to sign request: %v", err)
 		return nil, err
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := e.httpClient.Do(req)
 	if err != nil {
 		logrus.Errorf("failed to execute request: %v", err)
 		return nil, err

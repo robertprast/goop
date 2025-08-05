@@ -14,6 +14,7 @@ import (
 	"github.com/robertprast/goop/pkg/openai_schema"
 
 	"github.com/robertprast/goop/pkg/engine"
+	"github.com/robertprast/goop/pkg/utils"
 	"github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v2"
 )
@@ -33,10 +34,11 @@ var (
 )
 
 type OpenAIEngine struct {
-	backend   *BackendConfig
-	whitelist []string
-	prefix    string
-	logger    *logrus.Entry
+	backend    *BackendConfig
+	whitelist  []string
+	prefix     string
+	logger     *logrus.Entry
+	httpClient *http.Client
 }
 
 type openaiModelsResponse struct {
@@ -62,10 +64,11 @@ func NewOpenAIEngineWithConfig(configStr string) (*OpenAIEngine, error) {
 	backend.BackendURL = parsedUrl
 
 	e := &OpenAIEngine{
-		backend:   &backend,
-		whitelist: []string{"/v1/chat/completions", "/v1/completions", "/v1/models", "/v1/embeddings", "/v1/responses"},
-		prefix:    "/openai",
-		logger:    logrus.WithField("e", "openai"),
+		backend:    &backend,
+		whitelist:  []string{"/v1/chat/completions", "/v1/completions", "/v1/models", "/v1/embeddings", "/v1/responses"},
+		prefix:     "/openai",
+		logger:     logrus.WithField("e", "openai"),
+		httpClient: utils.DefaultHTTPClient(),
 	}
 	return e, nil
 }
@@ -101,7 +104,7 @@ func (e *OpenAIEngine) ListModels() ([]openai_schema.Model, error) {
 	}
 	req.Header.Set("Authorization", "Bearer "+e.backend.APIKey)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := e.httpClient.Do(req)
 	if err != nil {
 		e.logger.Errorf("failed to execute request: %v", err)
 		return nil, err

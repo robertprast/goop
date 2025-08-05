@@ -14,6 +14,7 @@ import (
 
 	"github.com/robertprast/goop/pkg/engine"
 	"github.com/robertprast/goop/pkg/openai_schema"
+	"github.com/robertprast/goop/pkg/utils"
 	"github.com/sirupsen/logrus"
 )
 
@@ -29,9 +30,10 @@ var (
 )
 
 type GeminiEngine struct {
-	backends []*BackendConfig
-	prefix   string
-	logger   *logrus.Entry
+	backends   []*BackendConfig
+	prefix     string
+	logger     *logrus.Entry
+	httpClient *http.Client
 }
 
 type geminiModelsResponse struct {
@@ -46,9 +48,10 @@ type geminiModelsResponse struct {
 func NewGeminiEngine(_ string) (*GeminiEngine, error) {
 	u, _ := url.Parse("https://generativelanguage.googleapis.com")
 	return &GeminiEngine{
-		backends: []*BackendConfig{{BackendURL: u}},
-		prefix:   "/gemini",
-		logger:   logrus.WithField("e", "gemini-openai"),
+		backends:   []*BackendConfig{{BackendURL: u}},
+		prefix:     "/gemini",
+		logger:     logrus.WithField("e", "gemini-openai"),
+		httpClient: utils.DefaultHTTPClient(),
 	}, nil
 }
 
@@ -82,7 +85,7 @@ func (e *GeminiEngine) ListModels() ([]openai_schema.Model, error) {
 	}
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := e.httpClient.Do(req)
 	if err != nil {
 		e.logger.Errorf("failed to execute request: %v", err)
 		return nil, err
