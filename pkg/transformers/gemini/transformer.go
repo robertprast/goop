@@ -58,8 +58,8 @@ func (p *GeminiProxy) TransformChatCompletionRequest(reqBody openai_schema.Incom
 func (p *GeminiProxy) HandleChatCompletionRequest(ctx context.Context, model string, stream bool, transformedBody []byte) (*http.Response, error) {
 	// Create the HTTP request with the path that the engine expects
 	// The engine will modify the URL to point to the correct Google endpoint
-	endpoint := "/gemini/v1/chat/completions"
-	
+	endpoint := "/v1beta/openai/chat/completions"
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(transformedBody))
 	if err != nil {
 		return nil, fmt.Errorf("error creating request: %w", err)

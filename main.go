@@ -52,7 +52,7 @@ func main() {
 		app.Logger.Fatalf("Server failed to start or shut down gracefully: %v", err)
 	}
 
-	app.Logger.Info("Server has been stopped gracefully.")
+	app.Logger.Info("Server has been stopped gracefully!")
 }
 
 // InitLogger sets up the Logrus logger
