@@ -21,7 +21,7 @@ This reverse proxy integrates multiple LLM providers (e.g., OpenAI, Bedrock, Azu
      - `/openai` for the OpenAI LLM engine.
      - `/bedrock` for the Bedrock (Anthropic) engine.
      - `/azure` for the Azure OpenAI engine.
-     - `/vertex` for Google Vertex AI engine
+     - `/gemini` for Google Vertex AI engine
      - `/openai-proxy` for OpenAI interfaces for Bedrock/Vertex based LLMs
 
 3. **Pre and Post-Response Hooks**:
