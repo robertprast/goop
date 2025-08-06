@@ -5,8 +5,8 @@ environment: "${GOOP_ENV:-development}"
 server:
   port: ${PORT:-8080}
   host: "${HOST:-0.0.0.0}"
-  read_timeout: ${READ_TIMEOUT:-60}
-  write_timeout: ${WRITE_TIMEOUT:-60}
+  read_timeout: ${READ_TIMEOUT:-600}
+  write_timeout: ${WRITE_TIMEOUT:-600}
   shutdown_timeout: ${SHUTDOWN_TIMEOUT:-5}
 
 # Logging configuration
