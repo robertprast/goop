@@ -17,6 +17,9 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// Middleware defines the signature for middleware functions
+type Middleware func(http.Handler) http.Handler
+
 // ProxyHandler holds dependencies for the proxy
 type ProxyHandler struct {
 	Config      *utils.Config
