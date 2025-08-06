@@ -1,8 +1,8 @@
 # Goop - GO Openllm Proxy
 
-Goop is a go based reverse proxy meant to be a single interface for multi-cloud LLM deployments and SaaS API deployments. Supported engines as of now are `OpenAI`, `AzureOpenAI`, `Vertex AI (Google)` and `Bedrock`. 
+Goop is a go based reverse proxy meant to be a single interface for multi-cloud LLM deployments and SaaS API deployments. Supported engines as of now are `OpenAI`, `AzureOpenAI`, `gemini AI (Google)` and `Bedrock`. 
 
-Additionally, there is a common `OpenAI proxy` to allow for a single interface based on OpenAI schemas for all possible models for bedrock and vertex . This allows you to pass `bedrock/<model_id>` to the OpenAI sdk as the `model`. 
+Additionally, there is a common `OpenAI proxy` to allow for a single interface based on OpenAI schemas for all possible models for bedrock and gemini . This allows you to pass `bedrock/<model_id>` to the OpenAI sdk as the `model`. 
 
 - [Architecture](#architecture)
 - [Setup and Installation](#setup-and-installation)
@@ -20,9 +20,8 @@ This reverse proxy integrates multiple LLM providers (e.g., OpenAI, Bedrock, Azu
    - Middleware dynamically routes requests based on URL prefixes to the appropriate engine:
      - `/openai` for the OpenAI LLM engine.
      - `/bedrock` for the Bedrock (Anthropic) engine.
-     - `/azure` for the Azure OpenAI engine.
-     - `/vertex` for Google Vertex AI engine
-     - `/openai-proxy` for OpenAI interfaces for Bedrock/Vertex based LLMs
+     - `/gemini` for Google gemini AI engine
+     - `/openai-proxy` for OpenAI interfaces for Bedrock/Gemini/OpenAI based LLMs
 
 3. **Pre and Post-Response Hooks**:
    - Engines integrate with the audit package to log inline hooks on raw request/response structs. The proxy supports non-blocking SSE/streaming, and the post-response hook is triggered only after the client connection is closed.
@@ -82,15 +81,15 @@ client = boto3.client("bedrock-runtime", endpoint_url="http://localhost:8080/bed
 client.meta.events.register("before-send.bedrock-runtime.*", _replace_headers)
 ```
 
-### Vertex AI (Google)
+### gemini AI (Google)
 ```python
-import vertexai
-from vertexai.preview.generative_models import GenerativeModel
+import geminiai
+from geminiai.preview.generative_models import GenerativeModel
 
-PROJECT_ID = "<YOUR_VERTEX_AI_PROJECT_ID>"
-vertexai.init(
+PROJECT_ID = "<YOUR_gemini_AI_PROJECT_ID>"
+geminiai.init(
     project=PROJECT_ID,
-    api_endpoint="http://localhost:8080/vertex",
+    api_endpoint="http://localhost:8080/gemini",
 )
 
 generative_multimodal_model = GenerativeModel("gemini-1.5-flash-002")
