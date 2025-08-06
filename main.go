@@ -175,10 +175,6 @@ func (app *App) InitRouter() {
 		adminHandler := auth.NewHandler(app.AuthService, app.Logger)
 		mux.HandleFunc("/admin/keys/", app.AuthMiddleware.RequireAdminAuth(adminHandler.ServeHTTP))
 		mux.HandleFunc("/admin/keys", app.AuthMiddleware.RequireAdminAuth(adminHandler.ServeHTTP))
-	} else {
-		// No auth - endpoints are unprotected
-		mux.Handle("/", proxyHandler)
-		mux.Handle("/openai-proxy/", openAIProxyHandler)
 	}
 
 	// Health and metrics endpoints are always unprotected
