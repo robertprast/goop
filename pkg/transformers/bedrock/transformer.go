@@ -125,7 +125,7 @@ func buildToolConfig(reqBody openai_schema.IncomingChatCompletionRequest) *bedro
 
 // transformMessages converts the OpenAI-style messages into Bedrock-compatible messages.
 func transformMessages(messages []openai_schema.ChatMessage) []bedrock.Message {
-	bedrockMessages := make([]bedrock.Message, len(messages))
+	var bedrockMessages []bedrock.Message
 	for i, message := range messages {
 		if message.Content == nil {
 			logrus.Warnf("Message %d has nil content, skipping.", i)
@@ -135,9 +135,35 @@ func transformMessages(messages []openai_schema.ChatMessage) []bedrock.Message {
 		var contentBlocks []bedrock.ContentBlock
 		switch content := message.Content.(type) {
 		case string:
+			if content == "" {
+				logrus.Warnf("Message %d has empty string content, skipping.", i)
+				continue
+			}
 			contentBlocks = append(contentBlocks, bedrock.ContentBlock{
 				Text: content,
 			})
+		case []interface{}:
+			// Handle content arrays (for multi-modal messages)
+			for j, item := range content {
+				if itemMap, ok := item.(map[string]interface{}); ok {
+					if itemType, exists := itemMap["type"]; exists {
+						switch itemType {
+						case "text":
+							if text, ok := itemMap["text"].(string); ok && text != "" {
+								contentBlocks = append(contentBlocks, bedrock.ContentBlock{
+									Text: text,
+								})
+							}
+						case "image_url":
+							// Handle image content - this would need more implementation
+							logrus.Debugf("Image content detected in message %d, item %d but not fully implemented", i, j)
+						}
+					}
+				}
+			}
+		default:
+			logrus.Warnf("Message %d has unsupported content type %T, skipping.", i, content)
+			continue
 		}
 
 		if message.Type != nil && *message.Type == "image_url" {
@@ -163,9 +189,14 @@ func transformMessages(messages []openai_schema.ChatMessage) []bedrock.Message {
 			})
 		}
 
-		bedrockMessages[i] = bedrock.Message{
-			Role:    message.Role,
-			Content: contentBlocks,
+		// Only add messages that have valid content blocks
+		if len(contentBlocks) > 0 {
+			bedrockMessages = append(bedrockMessages, bedrock.Message{
+				Role:    message.Role,
+				Content: contentBlocks,
+			})
+		} else {
+			logrus.Warnf("Message %d resulted in no valid content blocks, skipping.", i)
 		}
 	}
 	return bedrockMessages
