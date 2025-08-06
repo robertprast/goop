@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/robertprast/goop/pkg/auth"
 	"github.com/robertprast/goop/pkg/proxy"
 	"github.com/robertprast/goop/pkg/utils"
@@ -23,22 +22,18 @@ import (
 
 // App holds the application configurations and dependencies
 type App struct {
-	Config           *utils.Config
-	Router           *http.ServeMux
-	Logger           *logrus.Logger
-	Metrics          *proxy.Metrics
-	OpenProxyMetrics *proxy.OpenaiProxyMetrics
-	Healthy          int32
-	DB               *pgxpool.Pool
-	AuthService      *auth.Service
-	AuthMiddleware   *auth.Middleware
+	Config         *utils.Config
+	Router         *http.ServeMux
+	Logger         *logrus.Logger
+	Healthy        int32
+	DB             *pgxpool.Pool
+	AuthService    *auth.Service
+	AuthMiddleware *auth.Middleware
 }
 
 func main() {
 	app := &App{
-		Logger:           logrus.New(),
-		Metrics:          proxy.NewProxyMetrics(),
-		OpenProxyMetrics: proxy.NewOpenaiProxyMetrics(),
+		Logger: logrus.New(),
 	}
 
 	// Initialize components
@@ -160,8 +155,8 @@ func (app *App) InitHealth() {
 func (app *App) InitRouter() {
 	mux := http.NewServeMux()
 
-	proxyHandler := proxy.NewProxyHandler(app.Config, app.Logger, app.Metrics)
-	openAIProxyHandler := proxy.NewHandler(app.Config, app.Logger, app.OpenProxyMetrics)
+	proxyHandler := proxy.NewProxyHandler(app.Config, app.Logger)
+	openAIProxyHandler := proxy.NewHandler(app.Config, app.Logger)
 
 	// Log available engines
 	app.logAvailableEngines()
@@ -179,7 +174,6 @@ func (app *App) InitRouter() {
 
 	// Health and metrics endpoints are always unprotected
 	mux.HandleFunc("/healthz", app.healthHandler)
-	mux.Handle("/metrics", promhttp.Handler())
 
 	app.Router = mux
 }

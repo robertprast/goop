@@ -12,8 +12,8 @@ import (
 	"github.com/robertprast/goop/pkg/audit"
 	"github.com/robertprast/goop/pkg/openai_schema"
 	bedrockproxy "github.com/robertprast/goop/pkg/transformers/bedrock"
-	openaiproxy "github.com/robertprast/goop/pkg/transformers/openai"
 	geminiproxy "github.com/robertprast/goop/pkg/transformers/gemini"
+	openaiproxy "github.com/robertprast/goop/pkg/transformers/openai"
 	"github.com/robertprast/goop/pkg/utils"
 	"github.com/sirupsen/logrus"
 )
@@ -34,19 +34,17 @@ type OpenAIProxyEngine interface {
 type OpenAIProxyHandler struct {
 	config      *utils.Config
 	logger      *logrus.Logger
-	metrics     *OpenaiProxyMetrics
 	engineCache *EngineCache
 }
 
 // NewHandler creates a new OpenAI proxy handler with logging and telemetry
-func NewHandler(config *utils.Config, logger *logrus.Logger, metrics *OpenaiProxyMetrics) http.Handler {
+func NewHandler(config *utils.Config, logger *logrus.Logger) http.Handler {
 	engineCache := NewEngineCache(config, logger)
 	engineCache.StartCleanupRoutine()
-	
+
 	handler := &OpenAIProxyHandler{
 		config:      config,
 		logger:      logger,
-		metrics:     metrics,
 		engineCache: engineCache,
 	}
 	var finalHandler http.Handler = http.HandlerFunc(handler.ServeHTTP)
@@ -68,7 +66,6 @@ func (h *OpenAIProxyHandler) auditMiddleware(next http.Handler) http.Handler {
 		h.logger.Infof("Auditing request: %s %s", r.Method, r.URL.Path)
 		err := audit.Request(r)
 		if err != nil {
-			h.metrics.ErrorsTotal.WithLabelValues(r.Method, r.URL.Path, "audit_failed").Inc()
 			h.logger.Errorf("Audit failed: %v", err)
 			http.Error(w, "Audit failed", http.StatusInternalServerError)
 			return
@@ -77,20 +74,14 @@ func (h *OpenAIProxyHandler) auditMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// loggingMiddleware logs each incoming HTTP request and records metrics
+// loggingMiddleware logs each incoming HTTP request
 func (h *OpenAIProxyHandler) loggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		startTime := time.Now()
-		h.metrics.RequestsTotal.WithLabelValues(r.Method, r.URL.Path).Inc()
-
-		rec := &StatusRecorder{ResponseWriter: w, StatusCode: http.StatusOK}
-		next.ServeHTTP(rec, r)
-
+		next.ServeHTTP(w, r)
 		duration := time.Since(startTime).Seconds()
-		h.metrics.RequestDuration.WithLabelValues(r.Method, r.URL.Path).Observe(duration)
-
-		h.logger.Infof("Method: %s, Path: %s, Status: %d, Duration: %.4f seconds",
-			r.Method, r.URL.Path, rec.StatusCode, duration)
+		h.logger.Infof("Method: %s, Path: %s, Duration: %.4f seconds",
+			r.Method, r.URL.Path, duration)
 	})
 }
 
@@ -113,8 +104,6 @@ func (h *OpenAIProxyHandler) corsMiddleware(next http.Handler) http.Handler {
 
 // ServeHTTP handles incoming HTTP requests for the OpenAI proxy
 func (h *OpenAIProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	h.metrics.RequestsTotal.WithLabelValues(r.Method, r.URL.Path).Inc()
-
 	startTime := time.Now()
 
 	// Read and parse the request body
@@ -127,16 +116,14 @@ func (h *OpenAIProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost {
 			h.handleChatCompletions(w, r)
 		} else {
-			h.metrics.ErrorsTotal.WithLabelValues(r.Method, r.URL.Path, "method_not_allowed").Inc()
 			http.Error(w, "Unsupported method", http.StatusMethodNotAllowed)
 		}
 	default:
-		h.metrics.ErrorsTotal.WithLabelValues(r.Method, r.URL.Path, "unsupported_path").Inc()
 		http.Error(w, "Unsupported path", http.StatusNotFound)
 	}
 
 	duration := time.Since(startTime).Seconds()
-	h.metrics.RequestDuration.WithLabelValues(r.Method, r.URL.Path).Observe(duration)
+	h.logger.Infof("Request processed in %f seconds", duration)
 }
 
 // handleModels handles the /openai-proxy/v1/models endpoint
@@ -156,14 +143,12 @@ func (h *OpenAIProxyHandler) handleModels(w http.ResponseWriter, r *http.Request
 			h.logger.Infof("Adding Bedrock models (engine available)")
 			proxyEngine, err := h.engineCache.GetEngine("bedrock", "bedrock/models")
 			if err != nil {
-				h.metrics.ErrorsTotal.WithLabelValues(r.Method, r.URL.Path, "bedrock model list error").Inc()
 				h.logger.Errorf("Error getting bedrock engine: %v", err)
 			} else {
 				// Extract underlying bedrock engine from proxy
 				if bedrockProxy, ok := proxyEngine.(*bedrockproxy.BedrockProxy); ok {
 					bModels, err := bedrockProxy.BedrockEngine.ListModels()
 					if err != nil {
-						h.metrics.ErrorsTotal.WithLabelValues(r.Method, r.URL.Path, "bedrock model list error").Inc()
 						h.logger.Errorf("Error listing bedrock models: %v", err)
 					} else {
 						h.logger.Infof("Got %d models from bedrock", len(bModels))
@@ -176,14 +161,12 @@ func (h *OpenAIProxyHandler) handleModels(w http.ResponseWriter, r *http.Request
 			h.logger.Infof("Adding OpenAI models (engine available)")
 			proxyEngine, err := h.engineCache.GetEngine("openai", "openai/models")
 			if err != nil {
-				h.metrics.ErrorsTotal.WithLabelValues(r.Method, r.URL.Path, "openai model list error").Inc()
 				h.logger.Errorf("Error getting openai engine: %v", err)
 			} else {
 				// Extract underlying openai engine from proxy
 				if openaiProxy, ok := proxyEngine.(*openaiproxy.OpenAIProxy); ok {
 					oModels, err := openaiProxy.OpenAIEngine.ListModels()
 					if err != nil {
-						h.metrics.ErrorsTotal.WithLabelValues(r.Method, r.URL.Path, "openai model list error").Inc()
 						h.logger.Errorf("Error listing openai models: %v", err)
 					} else {
 						h.logger.Infof("Got %d models from openai", len(oModels))
@@ -196,14 +179,12 @@ func (h *OpenAIProxyHandler) handleModels(w http.ResponseWriter, r *http.Request
 			h.logger.Infof("Adding Gemini models (engine available)")
 			proxyEngine, err := h.engineCache.GetEngine("gemini", "gemini/models")
 			if err != nil {
-				h.metrics.ErrorsTotal.WithLabelValues(r.Method, r.URL.Path, "gemini model list error").Inc()
 				h.logger.Errorf("Error getting gemini engine: %v", err)
 			} else {
 				// Extract underlying gemini engine from proxy
 				if geminiProxy, ok := proxyEngine.(*geminiproxy.GeminiProxy); ok {
 					gModels, err := geminiProxy.GeminiEngine.ListModels()
 					if err != nil {
-						h.metrics.ErrorsTotal.WithLabelValues(r.Method, r.URL.Path, "gemini model list error").Inc()
 						h.logger.Errorf("Error listing gemini models: %v", err)
 					} else {
 						h.logger.Infof("Got %d models from gemini", len(gModels))
@@ -217,7 +198,6 @@ func (h *OpenAIProxyHandler) handleModels(w http.ResponseWriter, r *http.Request
 	w.Header().Set("Content-Type", "application/json")
 	err := json.NewEncoder(w).Encode(models)
 	if err != nil {
-		h.metrics.ErrorsTotal.WithLabelValues(r.Method, r.URL.Path, "encode_error").Inc()
 		h.logger.Errorf("Error encoding models response: %v", err)
 		http.Error(w, "Error encoding response", http.StatusInternalServerError)
 		return
@@ -229,7 +209,6 @@ func (h *OpenAIProxyHandler) handleChatCompletions(w http.ResponseWriter, r *htt
 	// Read the entire body first
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		h.metrics.ErrorsTotal.WithLabelValues(r.Method, r.URL.Path, "read_body_error").Inc()
 		h.logger.Errorf("Error reading request body: %v", err)
 		http.Error(w, "Error reading request body", http.StatusInternalServerError)
 		return
@@ -247,7 +226,6 @@ func (h *OpenAIProxyHandler) handleChatCompletions(w http.ResponseWriter, r *htt
 	// Unmarshal the request body into the struct
 	var reqBody openai_schema.IncomingChatCompletionRequest
 	if err := json.Unmarshal(body, &reqBody); err != nil {
-		h.metrics.ErrorsTotal.WithLabelValues(r.Method, r.URL.Path, "unmarshal_error").Inc()
 		h.logger.Errorf("Error parsing request body: %v", err)
 		http.Error(w, "Error parsing request body", http.StatusBadRequest)
 		return
@@ -255,7 +233,6 @@ func (h *OpenAIProxyHandler) handleChatCompletions(w http.ResponseWriter, r *htt
 	h.logger.Info("Parsed request body: ", reqBody)
 
 	h.logger.Debugf("Request body after transform: %+v", reqBody)
-	h.metrics.ChatCompletions.WithLabelValues(reqBody.Model).Inc()
 
 	h.handleChatCompletionsInternal(w, r, reqBody, reqBody.Stream)
 }
@@ -264,9 +241,8 @@ func (h *OpenAIProxyHandler) handleChatCompletions(w http.ResponseWriter, r *htt
 func (h *OpenAIProxyHandler) handleChatCompletionsInternal(w http.ResponseWriter, r *http.Request, reqBody openai_schema.IncomingChatCompletionRequest, stream bool) {
 	proxyEngine, err := h.selectEngine(reqBody.Model)
 	if err != nil {
-		h.metrics.ErrorsTotal.WithLabelValues(r.Method, r.URL.Path, "engine_selection_error").Inc()
 		h.logger.Errorf("Error getting engine: %v", err)
-		
+
 		// Return appropriate status code based on error type
 		if strings.Contains(err.Error(), "not available") || strings.Contains(err.Error(), "not configured") {
 			http.Error(w, err.Error(), http.StatusBadRequest)
@@ -280,7 +256,6 @@ func (h *OpenAIProxyHandler) handleChatCompletionsInternal(w http.ResponseWriter
 
 	transformedBody, err := proxyEngine.TransformChatCompletionRequest(reqBody)
 	if err != nil {
-		h.metrics.ErrorsTotal.WithLabelValues(r.Method, r.URL.Path, "transform_error").Inc()
 		h.logger.Infof("Error transforming request: %v", err)
 		http.Error(w, "Error transforming request", http.StatusInternalServerError)
 		return
@@ -289,27 +264,25 @@ func (h *OpenAIProxyHandler) handleChatCompletionsInternal(w http.ResponseWriter
 
 	resp, err := proxyEngine.HandleChatCompletionRequest(r.Context(), reqBody.Model, stream, transformedBody)
 	if err != nil {
-		h.metrics.ErrorsTotal.WithLabelValues(r.Method, r.URL.Path, "handle_request_error").Inc()
 		h.logger.Infof("Error processing request: %v", err)
 		http.Error(w, fmt.Sprintf("Error processing request: %v", err), http.StatusInternalServerError)
 		return
 	}
 
 	if err := proxyEngine.SendChatCompletionResponse(resp, w, stream); err != nil {
-		h.metrics.ErrorsTotal.WithLabelValues(r.Method, r.URL.Path, "send_response_error").Inc()
 		h.logger.Infof("Error sending response: %v", err)
 		http.Error(w, fmt.Sprintf("Error sending response: %v", err), http.StatusInternalServerError)
 		return
 	}
 
 	duration := time.Since(time.Now()).Seconds()
-	h.metrics.ChatCompletionDurations.WithLabelValues(reqBody.Model).Observe(duration)
+	h.logger.Infof("Chat completion processed in %f seconds", duration)
 }
 
 // selectEngine selects the appropriate engine based on the model and records errors
 func (h *OpenAIProxyHandler) selectEngine(model string) (OpenAIProxyEngine, error) {
 	var engineType string
-	
+
 	// Get available engines (only those with valid credentials)
 	availableEngines := h.engineCache.GetAvailableEngines()
 	isEngineAvailable := func(engine string) bool {
@@ -320,26 +293,23 @@ func (h *OpenAIProxyHandler) selectEngine(model string) (OpenAIProxyEngine, erro
 		}
 		return false
 	}
-	
+
 	switch {
 	case strings.HasPrefix(model, "openai/"):
 		engineType = "openai"
 		if !isEngineAvailable(engineType) {
-			h.metrics.ErrorsTotal.WithLabelValues(engineType, model, "engine_not_available").Inc()
 			return nil, fmt.Errorf("OpenAI engine not available - check API key configuration")
 		}
 		h.logger.Info("Selecting OpenAI engine")
 	case strings.HasPrefix(model, "bedrock/"):
 		engineType = "bedrock"
 		if !isEngineAvailable(engineType) {
-			h.metrics.ErrorsTotal.WithLabelValues(engineType, model, "engine_not_available").Inc()
 			return nil, fmt.Errorf("Bedrock engine not available - check AWS credentials configuration")
 		}
 		h.logger.Info("Selecting Bedrock engine")
 	case strings.HasPrefix(model, "gemini/"):
 		engineType = "gemini"
 		if !isEngineAvailable(engineType) {
-			h.metrics.ErrorsTotal.WithLabelValues(engineType, model, "engine_not_available").Inc()
 			return nil, fmt.Errorf("Gemini engine not available - check API key configuration")
 		}
 		h.logger.Info("Selecting Gemini AI engine")
@@ -351,7 +321,6 @@ func (h *OpenAIProxyHandler) selectEngine(model string) (OpenAIProxyEngine, erro
 				engineType = "openai"
 				h.logger.Infof("Detected OpenAI model %s, selecting OpenAI engine", model)
 			} else {
-				h.metrics.ErrorsTotal.WithLabelValues("openai", model, "engine_not_available").Inc()
 				return nil, fmt.Errorf("OpenAI engine not available for model %s - check API key configuration", model)
 			}
 		} else if strings.HasPrefix(model, "gemini-") {
@@ -359,22 +328,19 @@ func (h *OpenAIProxyHandler) selectEngine(model string) (OpenAIProxyEngine, erro
 				engineType = "gemini"
 				h.logger.Infof("Detected Gemini model %s, selecting Gemini engine", model)
 			} else {
-				h.metrics.ErrorsTotal.WithLabelValues("gemini", model, "engine_not_available").Inc()
 				return nil, fmt.Errorf("Gemini engine not available for model %s - check API key configuration", model)
 			}
 		} else {
-			h.metrics.ErrorsTotal.WithLabelValues("unknown", model, "unsupported_model").Inc()
 			return nil, fmt.Errorf("unsupported model: %s. Use prefixes like openai/, bedrock/, or gemini/ to specify the engine", model)
 		}
 	}
-	
+
 	// Use cached engine
 	proxyEngine, err := h.engineCache.GetEngine(engineType, model)
 	if err != nil {
-		h.metrics.ErrorsTotal.WithLabelValues(engineType, model, "engine_init_error").Inc()
 		h.logger.Errorf("Error getting cached engine for %s: %v", engineType, err)
 		return nil, err
 	}
-	
+
 	return proxyEngine, nil
 }
