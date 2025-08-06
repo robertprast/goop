@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 	openaiproxy "github.com/robertprast/goop/pkg/transformers/openai"
 	"github.com/robertprast/goop/pkg/utils"
 	"github.com/sirupsen/logrus"
+	"gopkg.in/yaml.v2"
 )
 
 // CachedEngine represents a cached engine with its creation time
@@ -71,7 +73,8 @@ func (ec *EngineCache) GetEngine(engineType string, model string) (OpenAIProxyEn
 	// Create new engine
 	proxyEngine, err := ec.createEngine(engineType, model)
 	if err != nil {
-		return nil, err
+		ec.logger.Warnf("Failed to create engine %s: %v", engineType, err)
+		return nil, fmt.Errorf("engine %s not available: %w", engineType, err)
 	}
 
 	// Cache the new engine
@@ -86,27 +89,33 @@ func (ec *EngineCache) GetEngine(engineType string, model string) (OpenAIProxyEn
 
 // createEngine creates a new engine instance
 func (ec *EngineCache) createEngine(engineType string, _ string) (OpenAIProxyEngine, error) {
+	// Check if engine configuration exists
+	engineConfig, exists := ec.config.Engines[engineType]
+	if !exists {
+		return nil, fmt.Errorf("engine %s not configured", engineType)
+	}
+
 	switch engineType {
 	case "openai":
-		openaiEngine, err := openai.NewOpenAIEngineWithConfig(ec.config.Engines["openai"])
+		openaiEngine, err := openai.NewOpenAIEngineWithConfig(engineConfig)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to create OpenAI engine: %w", err)
 		}
 		return &openaiproxy.OpenAIProxy{
 			OpenAIEngine: openaiEngine,
 		}, nil
 	case "bedrock":
-		bedrockEngine, err := bedrock.NewBedrockEngine(ec.config.Engines["bedrock"])
+		bedrockEngine, err := bedrock.NewBedrockEngine(engineConfig)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to create Bedrock engine: %w", err)
 		}
 		return &bedrockproxy.BedrockProxy{
 			BedrockEngine: bedrockEngine,
 		}, nil
 	case "gemini":
-		geminiEngine, err := gemini.NewGeminiEngine(ec.config.Engines["gemini"])
+		geminiEngine, err := gemini.NewGeminiEngine(engineConfig)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to create Gemini engine: %w", err)
 		}
 		return &geminiproxy.GeminiProxy{
 			GeminiEngine: geminiEngine,
@@ -149,4 +158,78 @@ func (ec *EngineCache) StartCleanupRoutine() {
 			ec.InvalidateCache()
 		}
 	}()
+}
+
+// GetAvailableEngines returns a list of engines that have their required credentials configured
+func (ec *EngineCache) GetAvailableEngines() []string {
+	var available []string
+
+	for engineType := range ec.config.Engines {
+		if ec.isEngineAvailable(engineType) {
+			available = append(available, engineType)
+		}
+	}
+
+	return available
+}
+
+// isEngineAvailable checks if the given engine has its required credentials
+func (ec *EngineCache) isEngineAvailable(engineType string) bool {
+	engineConfig, exists := ec.config.Engines[engineType]
+	if !exists {
+		return false
+	}
+
+	switch engineType {
+	case "openai":
+		return ec.checkOpenAICredentials(engineConfig)
+	case "gemini":
+		return ec.checkGeminiCredentials(engineConfig)
+	case "bedrock":
+		return ec.checkBedrockCredentials(engineConfig)
+	default:
+		return false
+	}
+}
+
+// checkOpenAICredentials checks if OpenAI API key is available
+func (ec *EngineCache) checkOpenAICredentials(configStr string) bool {
+	var config struct {
+		APIKey string `yaml:"api_key"`
+	}
+
+	if err := yaml.Unmarshal([]byte(configStr), &config); err != nil {
+		return false
+	}
+
+	return strings.TrimSpace(config.APIKey) != ""
+}
+
+// checkGeminiCredentials checks if Gemini API key is available
+func (ec *EngineCache) checkGeminiCredentials(configStr string) bool {
+	var config struct {
+		APIKey string `yaml:"api_key"`
+	}
+
+	if err := yaml.Unmarshal([]byte(configStr), &config); err != nil {
+		return false
+	}
+
+	// Check only config API key (config system handles env vars)
+	return strings.TrimSpace(config.APIKey) != ""
+}
+
+// checkBedrockCredentials checks if AWS credentials are available
+func (ec *EngineCache) checkBedrockCredentials(configStr string) bool {
+	var config struct {
+		AccessKeyID     string `yaml:"access_key_id"`
+		SecretAccessKey string `yaml:"secret_access_key"`
+	}
+
+	if err := yaml.Unmarshal([]byte(configStr), &config); err != nil {
+		return false
+	}
+
+	// Check only config credentials (config system handles env vars)
+	return strings.TrimSpace(config.AccessKeyID) != "" && strings.TrimSpace(config.SecretAccessKey) != ""
 }

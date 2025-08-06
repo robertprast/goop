@@ -46,8 +46,9 @@ type BedrockEngine struct {
 }
 
 type bedrockConfig struct {
-	Enabled bool   `yaml:"enabled"`
-	Region  string `yaml:"region"`
+	Region          string `yaml:"region"`
+	AccessKeyID     string `yaml:"access_key_id"`
+	SecretAccessKey string `yaml:"secret_access_key"`
 }
 
 type foundationModelsResponse struct {
@@ -78,9 +79,10 @@ func NewBedrockEngine(configStr string) (*BedrockEngine, error) {
 		logrus.Errorf("Unable to unmarshal Bedrock config: %v", err)
 		return nil, err
 	}
-	if !goopConfig.Enabled {
-		logrus.Info("Bedrock engine is disabled")
-		return nil, fmt.Errorf("engine is disabled")
+	// Check if AWS credentials are available in config (config system handles env vars)
+	if goopConfig.AccessKeyID == "" || goopConfig.SecretAccessKey == "" {
+		logrus.Info("Bedrock engine disabled: AWS credentials not configured")
+		return nil, fmt.Errorf("AWS credentials not configured")
 	}
 
 	cfg, err := awsconfig.LoadDefaultConfig(context.Background())

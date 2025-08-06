@@ -3,9 +3,9 @@ package auth
 import (
 	"context"
 	"net/http"
-	"os"
 	"strings"
 
+	"github.com/robertprast/goop/pkg/utils"
 	"github.com/sirupsen/logrus"
 )
 
@@ -35,7 +35,7 @@ func NewMiddleware(service *Service, logger *logrus.Logger) *Middleware {
 func (m *Middleware) RequireAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Check if auth is disabled for local development
-		if os.Getenv("GOOP_DISABLE_AUTH") == "true" {
+		if utils.GetEnvBoolWithDefault("GOOP_DISABLE_AUTH", false) {
 			m.logger.Debug("Authentication disabled for local development")
 			next(w, r)
 			return
@@ -58,7 +58,7 @@ func (m *Middleware) RequireAuth(next http.HandlerFunc) http.HandlerFunc {
 func (m *Middleware) RequireAdminAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Check if auth is disabled for local development
-		if os.Getenv("GOOP_DISABLE_AUTH") == "true" {
+		if utils.GetEnvBoolWithDefault("GOOP_DISABLE_AUTH", false) {
 			m.logger.Debug("Authentication disabled for local development")
 			next(w, r)
 			return

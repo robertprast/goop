@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 	"sync"
 	"time"
@@ -71,7 +70,7 @@ func (e *GeminiEngine) ListModels() ([]openai_schema.Model, error) {
 		return cachedGeminiModels, nil
 	}
 
-	apiKey := os.Getenv("GEMINI_API_KEY")
+	apiKey := utils.GetEnvWithDefault("GEMINI_API_KEY", "")
 	if apiKey == "" {
 		e.logger.Error("GEMINI_API_KEY must be set")
 		return nil, fmt.Errorf("GEMINI_API_KEY must be set")
@@ -147,19 +146,13 @@ func (e *GeminiEngine) IsAllowedPath(path string) bool {
 }
 
 func (e *GeminiEngine) ModifyRequest(r *http.Request) {
-	apiKey := os.Getenv("GEMINI_API_KEY")
+	apiKey := utils.GetEnvWithDefault("GEMINI_API_KEY", "")
 	if apiKey == "" {
 		e.logger.Error("GEMINI_API_KEY must be set")
 		return
 	}
-	host := os.Getenv("GEMINI_OPENAI_BASE")
-	if host == "" {
-		host = "https://generativelanguage.googleapis.com"
-	}
-	version := os.Getenv("GEMINI_OPENAI_VERSION")
-	if version == "" {
-		version = "v1beta"
-	}
+	host := utils.GetEnvWithDefault("GEMINI_OPENAI_BASE", "https://generativelanguage.googleapis.com")
+	_ = utils.GetEnvWithDefault("GEMINI_OPENAI_VERSION", "v1beta") // version not currently used
 
 	path := r.URL.Path
 	usingGeminiRawSchema := false

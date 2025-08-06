@@ -1,26 +1,38 @@
+# Environment configuration
+environment: "${GOOP_ENV:-development}"
+
+# Server configuration
+server:
+  port: ${PORT:-8080}
+  host: "${HOST:-0.0.0.0}"
+  read_timeout: ${READ_TIMEOUT:-60}
+  write_timeout: ${WRITE_TIMEOUT:-60}
+  shutdown_timeout: ${SHUTDOWN_TIMEOUT:-5}
+
+# Logging configuration
+logging:
+  level: "${LOG_LEVEL:-info}"
+  format: "${LOG_FORMAT:-json}"
+
+# Authentication configuration
+auth:
+  disabled: ${GOOP_DISABLE_AUTH:-false}
+
+# Engine configurations
 engines:
   openai:
     api_key: "${OPENAI_API_KEY}"
-    base_url: "${OPENAI_API_BASE_URL}"
-    # base_url: "http://localhost:11434/v1"
-#    api_key: "${OPENAI_API_KEY}"
-#    base_url: "http://host.docker.internal:11434/v1"
-  #   api_key: "${OPENAI_API_KEY}"
-    # base_url: "https://api.openai.com/v1"
-
-  # azure:
-  #   - api_key: "${OPENAI_API_KEY}"
-  #     base_url: "http://localhost:1234/v1"
-  #     api_version: "2024-04-01-preview"
+    base_url: "${OPENAI_API_BASE_URL:-https://api.openai.com/v1}"
 
   gemini:
-    enabled: true
-    project_id: "encrypted-llm"
+    project_id: "${GOOGLE_CLOUD_PROJECT:-encrypted-llm}"
+    api_key: "${GEMINI_API_KEY}"
 
   bedrock:
-    enabled: true
-    region: us-east-1
+    region: "${AWS_REGION:-us-east-1}"
+    access_key_id: "${AWS_ACCESS_KEY_ID}"
+    secret_access_key: "${AWS_SECRET_ACCESS_KEY}"
 
-# Database configuration (optional - will use DATABASE_URL env var if not specified)
+# Database configuration
 database_url: "${DATABASE_URL}"
 

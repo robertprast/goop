@@ -19,20 +19,23 @@ import (
 
 // ProxyHandler holds dependencies for the proxy
 type ProxyHandler struct {
-	Config  *utils.Config
-	Logger  *logrus.Logger
-	Metrics *Metrics
+	Config      *utils.Config
+	Logger      *logrus.Logger
+	Metrics     *Metrics
+	EngineCache *EngineCache
 }
 
 // NewProxyHandler creates a new proxy handler with logging and telemetry
 func NewProxyHandler(config *utils.Config, logger *logrus.Logger, metrics *Metrics) http.Handler {
+	engineCache := NewEngineCache(config, logger)
 	handler := &ProxyHandler{
-		Config:  config,
-		Logger:  logger,
-		Metrics: metrics,
+		Config:      config,
+		Logger:      logger,
+		Metrics:     metrics,
+		EngineCache: engineCache,
 	}
 	var finalHandler http.Handler = http.HandlerFunc(handler.reverseProxy)
-	finalHandler = chainMiddlewares(finalHandler, handler.auditMiddleware, handler.engineMiddleware, handler.loggingMiddleware)
+	finalHandler = chainMiddlewares(finalHandler, handler.auditMiddleware, handler.engineMiddleware, handler.loggingMiddleware, handler.corsMiddleware)
 	return finalHandler
 }
 
@@ -79,13 +82,23 @@ func (h *ProxyHandler) engineMiddleware(next http.Handler) http.Handler {
 		firstPathSegment := segments[1]
 		h.Logger.Infof("First path segment: %s", firstPathSegment)
 
-		// Check if config has engine
-		engineConfig, ok := h.Config.Engines[firstPathSegment]
-		if !ok {
-			h.Metrics.ErrorsTotal.WithLabelValues(r.Method, r.URL.Path, "engine_not_found").Inc()
-			http.Error(w, "Engine not found", http.StatusNotFound)
+		// Check if engine is available (has valid credentials)
+		availableEngines := h.EngineCache.GetAvailableEngines()
+		engineAvailable := false
+		for _, engine := range availableEngines {
+			if engine == firstPathSegment {
+				engineAvailable = true
+				break
+			}
+		}
+		if !engineAvailable {
+			h.Metrics.ErrorsTotal.WithLabelValues(r.Method, r.URL.Path, "engine_not_available").Inc()
+			h.Logger.Warnf("Engine %s not available (no valid credentials configured)", firstPathSegment)
+			http.Error(w, "Engine not available", http.StatusNotFound)
 			return
 		}
+
+		engineConfig := h.Config.Engines[firstPathSegment]
 
 		var eng engine.Engine
 		var err error
@@ -120,6 +133,23 @@ func (h *ProxyHandler) engineMiddleware(next http.Handler) http.Handler {
 		h.Logger.Infof("Selected engine: %s", eng.Name())
 		ctx := engine.ContextWithEngine(r.Context(), eng)
 		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+// corsMiddleware adds CORS headers to responses
+func (h *ProxyHandler) corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With")
+
+		// Handle preflight requests
+		if r.Method == "OPTIONS" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		next.ServeHTTP(w, r)
 	})
 }
 
