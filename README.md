@@ -8,6 +8,7 @@ Additionally, there is a common `OpenAI proxy` to allow for a single interface b
 - [Setup and Installation](#setup-and-installation)
 - [Usage](#usage)
 - [Advanced Usage](#advanced-usage)
+- [Documentation](#documentation)
 
 ## Architecture
 
@@ -232,3 +233,7 @@ if output.tool_calls:
 
 
 ```
+
+## Documentation
+
+- [Google Gemini Workflow Examples](docs/google-gemini-workflows.md) - Examples of GitHub Actions workflows from Google's repositories that use Gemini AI for automated issue and comment review
