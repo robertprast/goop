@@ -76,39 +76,104 @@ func (p *bedrockNative) Rewrite(pr *httputil.ProxyRequest) {
 }
 
 func (p *bedrockNative) ListModels(ctx context.Context) ([]Model, error) {
-	out, err := p.ctlClient.ListFoundationModels(ctx, &bedrock.ListFoundationModelsInput{})
+	now := time.Now().Unix()
+	seen := make(map[string]struct{})
+	models := make([]Model, 0, 64)
+	add := func(m Model) {
+		if _, dup := seen[m.ID]; dup {
+			return
+		}
+		seen[m.ID] = struct{}{}
+		models = append(models, m)
+	}
+
+	fm, err := p.ctlClient.ListFoundationModels(ctx, &bedrock.ListFoundationModelsInput{})
 	if err != nil {
 		return nil, fmt.Errorf("bedrock: list foundation models: %w", err)
 	}
-	models := make([]Model, 0, len(out.ModelSummaries))
-	now := time.Now().Unix()
-	for _, m := range out.ModelSummaries {
+	for _, m := range fm.ModelSummaries {
 		if m.ModelLifecycle == nil || m.ModelLifecycle.Status != types.FoundationModelLifecycleStatusActive {
 			continue
 		}
 		if !hasOnDemand(m.InferenceTypesSupported) {
+			// Newer models (Anthropic Claude 3.5+, Sonnet 4.x, Haiku 4.x, etc.)
+			// only support INFERENCE_PROFILE invocation. They surface via
+			// ListInferenceProfiles below — skipping them here keeps the
+			// foundation row from shadowing the (working) inference profile.
 			continue
 		}
 		id := safe(m.ModelId)
 		owner := safe(m.ProviderName)
-		models = append(models, Model{
-			ID:       "bedrock/" + id,
-			Object:   "model",
-			Created:  now,
-			OwnedBy:  owner,
-			Provider: "bedrock",
-		})
+		add(Model{ID: "bedrock/" + id, Object: "model", Created: now, OwnedBy: owner, Provider: "bedrock"})
 		if p.crPrefix != "" {
-			models = append(models, Model{
-				ID:       fmt.Sprintf("bedrock/%s.%s", p.crPrefix, id),
+			add(Model{ID: fmt.Sprintf("bedrock/%s.%s", p.crPrefix, id), Object: "model", Created: now, OwnedBy: owner, Provider: "bedrock"})
+		}
+	}
+
+	// Inference profiles are how Bedrock exposes cross-region-only models
+	// (Anthropic Claude 3.5+, Sonnet 4.x, etc.). The InferenceProfileId is
+	// the exact value Converse accepts as the model field, so we emit it
+	// verbatim under the bedrock/ namespace.
+	var nextToken *string
+	for {
+		ip, err := p.ctlClient.ListInferenceProfiles(ctx, &bedrock.ListInferenceProfilesInput{
+			NextToken: nextToken,
+		})
+		if err != nil {
+			// Don't fail the whole listing — older Bedrock regions / accounts
+			// without the API surface should still get the foundation list.
+			break
+		}
+		for _, prof := range ip.InferenceProfileSummaries {
+			if prof.Status != types.InferenceProfileStatusActive {
+				continue
+			}
+			id := safe(prof.InferenceProfileId)
+			if id == "" {
+				continue
+			}
+			add(Model{
+				ID:       "bedrock/" + id,
 				Object:   "model",
 				Created:  now,
-				OwnedBy:  owner,
+				OwnedBy:  ownerFromProfile(prof),
 				Provider: "bedrock",
 			})
 		}
+		if ip.NextToken == nil || *ip.NextToken == "" {
+			break
+		}
+		nextToken = ip.NextToken
 	}
+
 	return models, nil
+}
+
+// ownerFromProfile reads the provider name (e.g. "Anthropic") off the first
+// model ARN in a profile. ARN shape:
+//
+//	arn:aws:bedrock:<region>::foundation-model/<provider>.<id>
+func ownerFromProfile(p types.InferenceProfileSummary) string {
+	for _, m := range p.Models {
+		if m.ModelArn == nil {
+			continue
+		}
+		arn := *m.ModelArn
+		i := strings.LastIndex(arn, "/")
+		if i < 0 || i+1 >= len(arn) {
+			continue
+		}
+		modelID := arn[i+1:]
+		dot := strings.IndexByte(modelID, '.')
+		if dot <= 0 {
+			continue
+		}
+		owner := modelID[:dot]
+		// Capitalize first rune so "anthropic" -> "Anthropic", matching the
+		// casing ListFoundationModels returns in ProviderName.
+		return strings.ToUpper(owner[:1]) + owner[1:]
+	}
+	return ""
 }
 
 // BedrockMantleConfig configures Bedrock's OpenAI-compat (Mantle) endpoint at
