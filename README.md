@@ -62,9 +62,15 @@ The translator is text-only. Multimodal requests get a 400 pointing at
 ```bash
 cp .env.example .env       # fill in any subset of provider keys
 make run                   # binary on :8080
-# or
+# or build locally:
 docker compose up --build
+# or pull the published multi-arch image (linux/amd64, linux/arm64):
+docker run --rm --env-file .env -p 8080:8080 ghcr.io/robertprast/goop:latest
 ```
+
+The published image is built `FROM scratch` — under 10 MB, no shell, no
+package manager, runs as UID 65532. CI is in `.github/workflows/release.yml`
+and uses only first-party `actions/*` and `docker/*` actions.
 
 Smoke test:
 
