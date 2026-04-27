@@ -1,26 +1,92 @@
-engines:
+# goop — homelab LLM reverse proxy
+# All ${VAR} and ${VAR:-default} patterns are substituted from the environment
+# before YAML parsing. Providers with missing required secrets are silently
+# skipped at startup; check the logs for the per-provider status.
+
+server:
+  addr: "${GOOP_ADDR:-:8080}"
+  read_timeout: 30s
+  write_timeout: 0s          # 0 = unlimited (LLM streams may take minutes)
+  idle_timeout: 120s
+  shutdown_timeout: 10s
+
+logging:
+  level: "${LOG_LEVEL:-info}"   # debug, info, warn, error
+  format: "${LOG_FORMAT:-text}" # text or json
+
+auth:
+  # Single shared bearer token. Empty disables auth (homelab default).
+  api_key: "${GOOP_API_KEY}"
+
+models:
+  ttl: 10m  # /v1/models aggregator TTL
+
+providers:
+  # ---------- OpenAI-compatible providers ----------
+  # Each takes the same shape; only base_url, api_key, and (sometimes)
+  # auth_header / extra_headers / query_params differ.
+
   openai:
+    type: openai-compat
     api_key: "${OPENAI_API_KEY}"
-    base_url: "${OPENAI_API_BASE_URL}"
-    # base_url: "http://localhost:11434/v1"
-#    api_key: "${OPENAI_API_KEY}"
-#    base_url: "http://host.docker.internal:11434/v1"
-  #   api_key: "${OPENAI_API_KEY}"
-    # base_url: "https://api.openai.com/v1"
+    base_url: "${OPENAI_API_BASE_URL:-https://api.openai.com}"
+    prefix: /openai
 
-  # azure:
-  #   - api_key: "${OPENAI_API_KEY}"
-  #     base_url: "http://localhost:1234/v1"
-  #     api_version: "2024-04-01-preview"
+  together:
+    type: openai-compat
+    api_key: "${TOGETHER_API_KEY}"
+    base_url: https://api.together.xyz
+    prefix: /together
+    model_id_prefix: "together/"
 
-  gemini:
-    enabled: true
-    project_id: "encrypted-llm"
+  azure:
+    type: openai-compat
+    api_key: "${AZURE_OPENAI_API_KEY}"
+    base_url: "${AZURE_OPENAI_ENDPOINT}"   # e.g. https://my-resource.openai.azure.com
+    prefix: /azure
+    auth_header: api-key
+    auth_value_format: "%s"
+    # Azure v1 endpoint omits api-version. For classic, set it here:
+    # query_params:
+    #   api-version: "2024-10-21"
+
+  gemini-openai:
+    type: openai-compat
+    api_key: "${GEMINI_API_KEY}"
+    base_url: https://generativelanguage.googleapis.com
+    # Google's OpenAI-compat endpoint is at /v1beta/openai/, not /v1/.
+    # Substitute /v1 in the client's path so the OpenAI SDK can stay vanilla.
+    v1_path_override: /v1beta/openai
+    prefix: /gemini-openai
+    model_id_prefix: "gemini/"
+
+  anthropic-openai:
+    type: openai-compat
+    api_key: "${ANTHROPIC_API_KEY}"
+    base_url: https://api.anthropic.com
+    prefix: /anthropic-openai
+    extra_headers:
+      anthropic-version: "2023-06-01"
+    model_id_prefix: "anthropic/"
+
+  # ---------- Native passthrough providers ----------
+  # Clients use the provider's own SDK (boto3, google-genai, anthropic-go).
+  # goop signs/injects auth so clients only need the goop bearer.
 
   bedrock:
-    enabled: true
-    region: us-east-1
+    type: bedrock                          # native Converse / InvokeModel
+    region: "${AWS_REGION:-us-east-1}"
+    cross_region_prefix: us                # blank to skip cross-region profiles
 
-# Database configuration (optional - will use DATABASE_URL env var if not specified)
-database_url: "${DATABASE_URL}"
+  bedrock-openai:
+    type: bedrock-openai                   # AWS Mantle (OpenAI-compat with SigV4)
+    region: "${AWS_REGION:-us-east-1}"
 
+  gemini:
+    type: gemini
+    api_key: "${GEMINI_API_KEY}"
+
+  anthropic:
+    type: anthropic
+    api_key: "${ANTHROPIC_API_KEY}"
+    version: "2023-06-01"

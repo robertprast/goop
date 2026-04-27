@@ -1,234 +1,163 @@
-# Goop - GO Openllm Proxy
+# goop
 
-Goop is a go based reverse proxy meant to be a single interface for multi-cloud LLM deployments and SaaS API deployments. Supported engines as of now are `OpenAI`, `AzureOpenAI`, `Vertex AI (Google)` and `Bedrock`. 
+A small Go reverse proxy that fronts every LLM provider behind one URL and one
+bearer token. Point your existing OpenAI / boto3 / google-genai / anthropic
+SDK at `goop`; `goop` injects the upstream credential and forwards bytes
+unchanged.
 
-Additionally, there is a common `OpenAI proxy` to allow for a single interface based on OpenAI schemas for all possible models for bedrock and vertex . This allows you to pass `bedrock/<model_id>` to the OpenAI sdk as the `model`. 
-
-- [Architecture](#architecture)
-- [Setup and Installation](#setup-and-installation)
-- [Usage](#usage)
-- [Advanced Usage](#advanced-usage)
-
-## Architecture
-
-This reverse proxy integrates multiple LLM providers (e.g., OpenAI, Bedrock, Azure) using a modular and efficient approach:
-
-1. **Engine Network Interface**:
-   - Each LLM provider is proxied at the network level, allowing upstream clients to use their native SDKs seamlessly. This allows infra changes to happen indepdendant of the application layer to passthrough. For example, you can enable a new bedrock model in the AWS console and have instant support from the persecptive of the reverse proxy. 
-
-2. **Dynamic Engine Routing**:
-   - Middleware dynamically routes requests based on URL prefixes to the appropriate engine:
-     - `/openai` for the OpenAI LLM engine.
-     - `/bedrock` for the Bedrock (Anthropic) engine.
-     - `/azure` for the Azure OpenAI engine.
-     - `/gemini` for Google Vertex AI engine
-     - `/openai-proxy` for OpenAI interfaces for Bedrock/Vertex based LLMs
-
-3. **Pre and Post-Response Hooks**:
-   - Engines integrate with the audit package to log inline hooks on raw request/response structs. The proxy supports non-blocking SSE/streaming, and the post-response hook is triggered only after the client connection is closed.
-
-
-## Setup and Installation
-
-1. **Clone the repository**:
-   ```bash
-   git clone https://github.com/robertpast/goop
-   cd goop
-   ```
-
-2. Build the Go application:
-   ```bash
-   make build
-   ```
-
-3. Run the server:
-   ```bash
-   make run
-   ```
-
-4. (Optional) Build and run the Docker container:
-   ```bash
-   make build-docker
-   make run-docker
-   ```
-
-## Usage 
-
-#### OpenAI Client
-
-```python
-from openai import OpenAI, AzureOpenAI
-client = OpenAI(
-    base_url="http://localhost:8080/openai/v1",
-    api_key="test",
-)
+```
+              ┌────────────────────┐
+client ──────►│   goop (Bearer)    │──── upstream auth (SigV4 / x-api-key / …) ───►  LLM
+              └────────────────────┘
 ```
 
-#### Azure Client
-```python
-azureClient = AzureOpenAI(
-    base_url="http://localhost:8080/azure",
-    api_key="test",
-    api_version="test",
-)
+Use it when you want one place to hold cloud credentials, swap providers by
+changing a `base_url`, or run a tiny aggregator in your homelab without
+adopting a full LLM gateway.
+
+## Routes
+
+### Native passthrough — clients keep using each provider's own SDK
+
+| Prefix       | Upstream                                          | Auth `goop` injects                     |
+| ------------ | ------------------------------------------------- | --------------------------------------- |
+| `/openai`    | `https://api.openai.com`                          | `Authorization: Bearer …`               |
+| `/azure`     | your Azure OpenAI resource                        | `api-key: …`                            |
+| `/together`  | `https://api.together.xyz`                        | `Authorization: Bearer …`               |
+| `/bedrock`   | `https://bedrock-runtime.{region}.amazonaws.com`  | AWS SigV4                               |
+| `/gemini`    | `https://generativelanguage.googleapis.com`       | `X-Goog-Api-Key: …`                     |
+| `/anthropic` | `https://api.anthropic.com`                       | `x-api-key: …` + `anthropic-version: …` |
+
+### OpenAI-compatible passthrough — point the OpenAI SDK at any of these
+
+| Prefix              | Provider's OpenAI-compat endpoint                       |
+| ------------------- | ------------------------------------------------------- |
+| `/openai`           | OpenAI native (already OpenAI-shaped)                   |
+| `/azure`            | Azure OpenAI v1                                         |
+| `/together`         | Together AI                                             |
+| `/gemini-openai`    | Google `generativelanguage` `/v1beta/openai`            |
+| `/anthropic-openai` | Anthropic's OpenAI-compat layer                         |
+| `/bedrock-openai`   | AWS Bedrock Mantle (SigV4-signed, OpenAI-shaped)        |
+
+### Translator — Bedrock models that Mantle doesn't yet cover
+
+| Endpoint                                      | Notes                                                                |
+| --------------------------------------------- | -------------------------------------------------------------------- |
+| `POST /bedrock-translate/v1/chat/completions` | OpenAI → Bedrock Converse for Claude, Llama, etc.                    |
+| `POST /openai-bedrock/v1/chat/completions`    | Legacy alias for the same handler.                                   |
+
+The translator is text-only. Multimodal requests get a 400 pointing at
+`/bedrock-openai/v1` (Mantle), which handles images natively.
+
+### Catalog & probes
+
+| Endpoint         | Behavior                                                                  |
+| ---------------- | ------------------------------------------------------------------------- |
+| `GET /v1/models` | Unions every enabled provider's model list, TTL-cached (10 min default).  |
+| `GET /healthz`   | Liveness — always 200, runs outside the auth middleware.                  |
+| `GET /ready`     | Readiness — 200 once at least one provider is configured, else 503.       |
+
+## Quickstart
+
+```bash
+cp .env.example .env       # fill in any subset of provider keys
+make run                   # binary on :8080
+# or
+docker compose up --build
 ```
 
-### Bedrock Client
-```python
-def _replace_headers(request: AWSRequest, **kwargs):
-    request.headers = {"Authorization": "Bearer test"}
+Smoke test:
 
+```bash
+curl -s http://localhost:8080/v1/models | jq '.data | length'
+```
+
+OpenAI Python SDK against any compat endpoint:
+
+```python
+from openai import OpenAI
+
+oa = OpenAI(api_key="goop-bearer", base_url="http://localhost:8080/openai/v1")
+tg = OpenAI(api_key="goop-bearer", base_url="http://localhost:8080/together/v1")
+bm = OpenAI(api_key="goop-bearer", base_url="http://localhost:8080/bedrock-openai/v1")
+ba = OpenAI(api_key="goop-bearer", base_url="http://localhost:8080/bedrock-translate/v1")
+```
+
+Native Bedrock with boto3 (SigV4 happens server-side):
+
+```python
+import boto3
 client = boto3.client("bedrock-runtime", endpoint_url="http://localhost:8080/bedrock")
-client.meta.events.register("before-send.bedrock-runtime.*", _replace_headers)
 ```
 
-### Vertex AI (Google)
-```python
-import vertexai
-from vertexai.preview.generative_models import GenerativeModel
+## Configuration
 
-PROJECT_ID = "<YOUR_VERTEX_AI_PROJECT_ID>"
-vertexai.init(
-    project=PROJECT_ID,
-    api_endpoint="http://localhost:8080/vertex",
-)
+`config.yml` is the source of truth. `${VAR}` and `${VAR:-default}` are
+substituted from the environment before parse, then YAML is decoded with
+strict mode (unknown keys cause startup to fail). Providers with missing
+required secrets are silently skipped — check the startup log to see which
+ones came up.
 
-generative_multimodal_model = GenerativeModel("gemini-1.5-flash-002")
-response = generative_multimodal_model.generate_content(["Say hi"])
+To add another OpenAI-compatible provider, copy any `openai-compat` block in
+`config.yml` and change `base_url` + `api_key`. No code change needed.
 
-print(response)
-```
-
-## Advanced Usage
-
-#### Using the OpenAI SDK for bedrock based models
-
-```python
-from openai import OpenAI, AzureOpenAI
-
-client = OpenAI(
-    base_url="http://localhost:8080/openai-proxy/v1",
-    api_key="test",
-)
-chat_completion = client.chat.completions.create(
-    messages=[
-        {
-            "role": "user",
-            "content": "Whats up dog?",
-        }
-    ],
-    model="bedrock/us.anthropic.claude-3-haiku-20240307-v1:0",
-    stream=False,
-)
-
-print(chat_completion)
-print(chat_completion.choices[0].message.content)
-
-
-### Tool Use Support
-tools = [
-    {
-        "type": "function",
-        "function": {
-            "name": "get_delivery_date",
-            "description": "Get the delivery date for a customer's order. Call this whenever you need to know the delivery date, for example when a customer asks 'Where is my package'",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "order_id": {
-                        "type": "string",
-                        "description": "The customer's order ID.",
-                    },
-                },
-                "required": ["order_id"],
-                "additionalProperties": False,
-            },
-        },
-    }
-]
-
-messages = [
-    {"role": "user", "content": "Hi, can you tell me the delivery date for my order?"}
-]
-
-
-client = OpenAI(
-    base_url="http://localhost:8080/openai-proxy/v1",
-    api_key="test",
-)
-chat_completion = client.chat.completions.create(
-    messages=messages,
-    model="bedrock/us.anthropic.claude-3-haiku-20240307-v1:0",
-    stream=False,
-    tools=tools,
-    tool_choice="required",
-)
-print(chat_completion.choices[0])
-```
-
-
-
-#### ELL Framework with all clients
-Chaining multiple native LLM SDK clients that flow through a single agentic framework and proxy all requests to the reverse proxy service
-
-For more information on the ELL framework, visit the [ELL GitHub repository](https://github.com/MadcowD/ell/).
-
-```python
-import ell
-from pydantic import Field
-import requests
-from bs4 import BeautifulSoup
-
-ell.init(verbose=True)
-
-"""
-TOOL USAGE
-"""
-
-
-@ell.tool()
-def get_html_content(
-    url: str = Field(
-        description="The URL to get the HTML content of. Never include the protocol (like http:// or https://)"
-    ),
-):
-    """Get the HTML content of a URL."""
-    response = requests.get("https://" + url)
-    soup = BeautifulSoup(response.text, "html.parser")
-    return soup.get_text()[:100]
-
-
-# OpenAI Client 
-@ell.complex(
-    model="gpt-4o-mini",
-    tools=[get_html_content],
-    client=client,
-)
-def openai_get_website_content(website: str) -> str:
-    return f"Tell me what's on {website}"
-
-
-print("OpenAI Client Tool Use\n\n")
-output = openai_get_website_content("new york times front page")
-if output.tool_calls:
-    print(output.tool_calls[0]())
-
-
-# Bedrock Client
-@ell.complex(
-    model="anthropic.claude-3-haiku-20240307-v1:0",
-    tools=[get_html_content],
-    client=bedrockClient,
-)
-def bedrock_get_website_content(website: str) -> str:
-    """You are an agent that can summarize the contents of a website."""
-    return f"Tell me what's on {website}"
-
-
-print("\n\nBedrock Client Tool Use\n\n")
-output = bedrock_get_website_content("new york times front page")
-if output.tool_calls:
-    print(output.tool_calls[0]())
-
+## Layout
 
 ```
+cmd/goop/             entrypoint
+internal/
+  auth/               single shared bearer middleware (constant-time compare)
+  config/             yaml + env loader (strict mode)
+  models/             /v1/models aggregator with TTL cache
+  provider/           Provider interface + implementations
+                      (openai-compat, bedrock-native, gemini, anthropic, sigv4)
+  proxy/              shared transport + per-provider httputil.ReverseProxy
+  translator/         OpenAI ↔ Bedrock Converse handler
+```
+
+## Design notes
+
+- **Streaming**: SSE and Bedrock event-streams pass through with no buffering.
+  `httputil.ReverseProxy` runs with `FlushInterval: -1`, and `Content-Length`
+  is stripped on event-stream responses so middlebox layers don't buffer.
+- **SigV4**: Bedrock SigV4 happens in a custom `RoundTripper`. The request
+  body is buffered just long enough to compute its SHA256; the response is
+  never buffered.
+- **Dynamic models**: `/v1/models` calls each provider's listing API on
+  demand (TTL-cached, deduped by ID, first-seen wins). New models appear
+  automatically.
+- **Header hygiene**: every provider's `Rewrite` strips client-supplied
+  auth headers (`Authorization`, `Api-Key`, `X-Api-Key`, `X-Goog-Api-Key`,
+  `Anthropic-Version`, `Proxy-Authorization`) before injecting its own —
+  prevents accidental credential smuggling.
+- **Body cap**: passthrough requests are wrapped with a 10 MiB
+  `MaxBytesReader` so an unbounded streamed POST can't OOM the process or
+  the SigV4 SHA256 buffer. Oversize requests get 413.
+- **No request rewriting on passthrough**: provider-native routes are
+  byte-for-byte transparent. Only the translator endpoint parses request
+  bodies.
+
+## Scope (and non-scope)
+
+`goop` is a homelab/single-tenant proxy. It is intentionally _not_:
+
+- a per-user quota / billing layer
+- a request/response logger or audit store
+- a multi-tenant key vault
+
+If you need any of that, you want
+[LiteLLM](https://github.com/BerriAI/litellm), [Portkey](https://portkey.ai),
+or an internal gateway. `goop` aims to be the thing you reach for when those
+feel like overkill.
+
+## Development
+
+```bash
+make fmt vet test       # standard loop
+make lint               # golangci-lint (config in .golangci.yml)
+go test ./... -race     # race detector
+```
+
+Tests are hermetic — they do not call out to real providers. SigV4 signing,
+the translator, the model aggregator, and the proxy are each covered by unit
+tests with `httptest.Server` upstreams.

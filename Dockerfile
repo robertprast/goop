@@ -1,26 +1,21 @@
-# Development stage with hot reloading
-FROM golang:1.24-alpine AS development
-WORKDIR /app
-RUN apk add --no-cache git
-RUN go install github.com/air-verse/air@latest
+# syntax=docker/dockerfile:1.7
+
+FROM golang:1.24-alpine AS builder
+WORKDIR /src
+RUN apk add --no-cache ca-certificates git
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-EXPOSE 8080
-CMD ["air", "-c", ".air.toml"]
+RUN CGO_ENABLED=0 GOOS=linux go build \
+    -ldflags="-s -w -extldflags=-static" \
+    -trimpath \
+    -o /out/goop ./cmd/goop
 
-# Production builder stage
-FROM golang:1.24-alpine AS builder
+FROM gcr.io/distroless/static-debian12:nonroot
 WORKDIR /app
-RUN apk add --no-cache git
-COPY . .
-RUN go mod tidy
-RUN go build -ldflags "-s -w" -o bin/goop main.go
-
-# Production stage
-FROM alpine:latest AS production
-WORKDIR /app
-COPY --from=builder /app/bin/goop /app/goop
+COPY --from=builder /out/goop /app/goop
+COPY --from=builder /src/config.yml /app/config.yml
 EXPOSE 8080
-COPY config.yml /app/config.yml
-ENTRYPOINT ["/app/goop"]
+USER nonroot:nonroot
+# Liveness/readiness should hit /healthz directly from your orchestrator.
+ENTRYPOINT ["/app/goop", "-config=/app/config.yml"]
