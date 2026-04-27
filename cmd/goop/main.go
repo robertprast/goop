@@ -18,6 +18,7 @@ import (
 	"github.com/robertprast/goop/internal/models"
 	"github.com/robertprast/goop/internal/provider"
 	"github.com/robertprast/goop/internal/proxy"
+	"github.com/robertprast/goop/internal/router"
 	"github.com/robertprast/goop/internal/translator"
 )
 
@@ -61,8 +62,10 @@ func main() {
 	// served unauthenticated so liveness probes don't need the bearer.
 	authed := http.NewServeMux()
 	authed.Handle("/", srv.Handler())
+	var bedrockTranslator http.Handler
 	if bp := registry.ByName("bedrock"); bp != nil {
 		bh := translator.NewBedrockHandler(bp, proxy.DefaultTransport(), logger)
+		bedrockTranslator = bh
 		// /openai-bedrock/... is the legacy alias; /bedrock-translate/... is
 		// the preferred name (the path made people think it was an OpenAI-
 		// compat passthrough rather than the Converse translator).
@@ -77,6 +80,14 @@ func main() {
 		authed.Handle("/bedrock-translate/v1/models", mh)
 		authed.Handle("/openai-bedrock/v1/models", mh)
 	}
+
+	// Smart top-level OpenAI endpoint. Clients can POST to /v1/chat/completions
+	// with a goop-namespaced model ID (e.g. "together/moonshotai/Kimi-K2.6")
+	// and the router dispatches to the right provider — no static model_list
+	// in front of goop required. The path is registered above the catch-all
+	// "/" so http.ServeMux's longest-match wins.
+	smart := router.NewResolver(registry, bedrockTranslator, logger).Handler(srv.Handler())
+	authed.Handle("/v1/chat/completions", smart)
 
 	root := http.NewServeMux()
 	root.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
