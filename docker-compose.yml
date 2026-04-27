@@ -9,4 +9,5 @@ services:
       - "8080:8080"
     env_file:
       - .env
-    # Distroless has no shell; rely on k8s/compose-external probing of /healthz.
+    # Image is FROM scratch — no shell, no curl. Probe /healthz and /ready
+    # from the orchestrator (k8s, compose external healthcheck) instead.
