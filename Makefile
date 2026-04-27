@@ -1,49 +1,39 @@
-.PHONY: build build-debug run run-debug clean dev-setup dev-start dev-stop dev-bootstrap
+.PHONY: build run test fmt vet lint tidy docker docker-run clean
 
-GO_FILES = $(shell find . -name '*.go')
-BIN_NAME := $(shell basename $(CURDIR))
-BIN= ./bin/$(BIN_NAME)
-DOCKER_REPO=$(BIN_NAME)
-DOCKER_TAG=dev
-DOCKER_REGISTRY=
-MAIN=./main.go
+BIN     := bin/goop
+PKG     := ./cmd/goop
+GOFLAGS := -trimpath -ldflags="-s -w"
 
-ARGS=
-
-$(BIN): $(GO_FILES)
-	@go build -ldflags "-s -w" -o $(BIN) $(MAIN)
+$(BIN): $(shell find . -name '*.go' -not -path './bin/*')
+	@mkdir -p bin
+	go build $(GOFLAGS) -o $(BIN) $(PKG)
 
 build: $(BIN)
 
-build-debug: $(GO_FILES)
-	@go build -gcflags "all=-N -l" -o $(BIN) $(MAIN)
-
-build-docker: $(GO_FILES)
-	@docker compose build goop
-
 run: build
-	@./$(BIN) $(ARGS)
+	./$(BIN) -config=config.yml
 
-run-debug: build-debug
-	@./$(BIN) $(ARGS)
+test:
+	go test ./...
 
-dev-setup:
-	@echo "Setting up development environment with Postgres and PGAdmin..."
-	@docker compose up -d postgres pgadmin -d
+fmt:
+	gofmt -s -w .
 
-dev-start-full-stack: dev-setup
-	@echo "Starting development services..."
-	@docker compose up goop
+vet:
+	go vet ./...
 
-dev-stop:
-	@echo "Stopping development services..."
-	@docker compose down
+lint:
+	@command -v golangci-lint >/dev/null || { echo "install golangci-lint: https://golangci-lint.run"; exit 1; }
+	golangci-lint run
 
-dev-clean:
-	@echo "Cleaning development environment (removes all data)..."
-	@docker compose down -v
-	@docker system prune -f
+tidy:
+	go mod tidy
+
+docker:
+	docker compose build
+
+docker-run:
+	docker compose up
 
 clean:
-	@echo "Cleaning up..."
-	@rm -f $(BIN)
+	rm -rf bin
