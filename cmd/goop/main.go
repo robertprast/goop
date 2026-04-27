@@ -68,6 +68,14 @@ func main() {
 		// compat passthrough rather than the Converse translator).
 		authed.Handle("/bedrock-translate/v1/chat/completions", bh)
 		authed.Handle("/openai-bedrock/v1/chat/completions", bh)
+
+		// Some OpenAI-shape clients (open-webui, LiteLLM) probe /v1/models
+		// when validating a connection. Without this, the translator's URL
+		// space looks half-broken: chat works but the connection itself
+		// shows as unhealthy in the UI. Reuse the native bedrock catalog.
+		mh := translator.NewModelsHandler(bp, logger)
+		authed.Handle("/bedrock-translate/v1/models", mh)
+		authed.Handle("/openai-bedrock/v1/models", mh)
 	}
 
 	root := http.NewServeMux()
