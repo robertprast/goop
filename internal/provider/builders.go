@@ -1,8 +1,10 @@
 package provider
 
 import (
+	"context"
 	"fmt"
 	"net/url"
+	"os"
 	"strings"
 
 	"github.com/robertprast/goop/internal/config"
@@ -16,13 +18,16 @@ import (
 //
 // The returned Warnings slice is human-readable status for the operator;
 // use it for logging.
-func BuildAll(cfg *config.Config) (providers []Provider, warnings []string, err error) {
+//
+// ctx scopes any long-lived background work a provider starts (e.g. the
+// Anthropic OAuth keepalive goroutine); cancel it on shutdown.
+func BuildAll(ctx context.Context, cfg *config.Config) (providers []Provider, warnings []string, err error) {
 	for name, raw := range cfg.Providers {
 		if raw.Disabled {
 			warnings = append(warnings, fmt.Sprintf("provider %q: disabled by config", name))
 			continue
 		}
-		p, warn, err := build(name, raw)
+		p, warn, err := build(ctx, name, raw)
 		if err != nil {
 			return nil, warnings, fmt.Errorf("provider %q: %w", name, err)
 		}
@@ -36,7 +41,7 @@ func BuildAll(cfg *config.Config) (providers []Provider, warnings []string, err 
 	return providers, warnings, nil
 }
 
-func build(name string, raw config.Provider) (Provider, string, error) {
+func build(ctx context.Context, name string, raw config.Provider) (Provider, string, error) {
 	switch raw.Type {
 	case "openai-compat":
 		return buildOpenAICompat(name, raw)
@@ -47,7 +52,7 @@ func build(name string, raw config.Provider) (Provider, string, error) {
 	case "gemini":
 		return buildGeminiNative(raw)
 	case "anthropic":
-		return buildAnthropicNative(raw)
+		return buildAnthropicNative(ctx, raw)
 	default:
 		return nil, "", fmt.Errorf("unknown type %q", raw.Type)
 	}
@@ -132,16 +137,43 @@ func buildGeminiNative(raw config.Provider) (Provider, string, error) {
 	return p, "", err
 }
 
-func buildAnthropicNative(raw config.Provider) (Provider, string, error) {
-	apiKey := getString(raw.Settings, "api_key")
-	if apiKey == "" {
-		return nil, "missing api_key (skipped)", nil
+func buildAnthropicNative(ctx context.Context, raw config.Provider) (Provider, string, error) {
+	cfg := AnthropicNativeConfig{
+		FallbackVersion: getString(raw.Settings, "version"),
+		BaseURL:         getString(raw.Settings, "base_url"),
 	}
-	p, err := NewAnthropicNative(AnthropicNativeConfig{
-		APIKey:  apiKey,
-		Version: getString(raw.Settings, "version"),
-		BaseURL: getString(raw.Settings, "base_url"),
-	})
+
+	// auth_mode selects between static api_key (default) and oauth (Claude Code
+	// SSO). OAuth mode reads ~/.claude/.credentials.json (or a configured path)
+	// and refreshes the access token in the background so requests never block.
+	mode := strings.ToLower(getStringOr(raw.Settings, "auth_mode", "api_key"))
+	switch mode {
+	case "api_key", "":
+		cfg.APIKey = getString(raw.Settings, "api_key")
+		if cfg.APIKey == "" {
+			return nil, "missing api_key (skipped)", nil
+		}
+	case "oauth":
+		path := getString(raw.Settings, "credentials_file")
+		if path == "" {
+			home, _ := os.UserHomeDir()
+			path = home + "/.claude/.credentials.json"
+		}
+		if _, err := os.Stat(path); err != nil {
+			return nil, fmt.Sprintf("oauth credentials_file not found: %v (skipped)", err), nil
+		}
+		src, err := NewAnthropicOAuthSource(ctx, AnthropicOAuthConfig{
+			CredentialsFile: path,
+		})
+		if err != nil {
+			return nil, fmt.Sprintf("oauth init failed: %v (skipped)", err), nil
+		}
+		cfg.OAuth = src
+	default:
+		return nil, "", fmt.Errorf("auth_mode: invalid %q (want api_key|oauth)", mode)
+	}
+
+	p, err := NewAnthropicNative(cfg)
 	return p, "", err
 }
 

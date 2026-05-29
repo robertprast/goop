@@ -2,15 +2,15 @@ package provider
 
 import "net/http"
 
-// stripClientAuth removes every header a client could use to inject upstream
-// authentication into the proxied request. After this, the provider's
-// Rewrite is responsible for setting the correct upstream auth.
+// stripClientAuth removes only the headers a client could use to spoof
+// upstream authentication. Everything else (anthropic-version, anthropic-beta,
+// user-agent, etc.) is passed through unchanged so the upstream sees exactly
+// what the client intended — goop only swaps the credentials.
 func stripClientAuth(h http.Header) {
 	for _, k := range []string{
 		"Authorization", "Proxy-Authorization",
 		"Api-Key", "X-Api-Key",
 		"X-Goog-Api-Key",
-		"Anthropic-Version",
 	} {
 		h.Del(k)
 	}

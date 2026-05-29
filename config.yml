@@ -88,5 +88,11 @@ providers:
 
   anthropic:
     type: anthropic
+    # auth_mode: api_key (default) uses ${ANTHROPIC_API_KEY}.
+    # auth_mode: oauth uses your Claude Code SSO session: tokens are read from
+    # ~/.claude/.credentials.json and refreshed in the background. Point any
+    # Claude Code client at this server with a dummy CLAUDE_CODE_OAUTH_TOKEN.
+    auth_mode: "${ANTHROPIC_AUTH_MODE:-api_key}"
     api_key: "${ANTHROPIC_API_KEY}"
+    credentials_file: "${ANTHROPIC_OAUTH_FILE:-}"  # blank → ~/.claude/.credentials.json
     version: "2023-06-01"

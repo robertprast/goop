@@ -34,7 +34,10 @@ func main() {
 	logger := newLogger(cfg.Logging)
 	slog.SetDefault(logger)
 
-	providers, warnings, err := provider.BuildAll(cfg)
+	rootCtx, rootCancel := context.WithCancel(context.Background())
+	defer rootCancel()
+
+	providers, warnings, err := provider.BuildAll(rootCtx, cfg)
 	if err != nil {
 		fatal("providers", err)
 	}
