@@ -96,3 +96,11 @@ providers:
     api_key: "${ANTHROPIC_API_KEY}"
     credentials_file: "${ANTHROPIC_OAUTH_FILE:-}"  # blank → ~/.claude/.credentials.json
     version: "2023-06-01"
+
+  # /chatgpt = Codex's ChatGPT backend (auth_mode: chatgpt). Requires the
+  # OAuth file produced by `codex login`; there is no static-key fallback.
+  # Set OPENAI_OAUTH_FILE to the absolute path of the seeded auth.json
+  # (e.g. /var/lib/goop/codex-auth.json on the cluster).
+  chatgpt:
+    type: chatgpt
+    credentials_file: "${OPENAI_OAUTH_FILE:-}"  # blank → ~/.codex/auth.json

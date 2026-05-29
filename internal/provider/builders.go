@@ -53,9 +53,33 @@ func build(ctx context.Context, name string, raw config.Provider) (Provider, str
 		return buildGeminiNative(raw)
 	case "anthropic":
 		return buildAnthropicNative(ctx, raw)
+	case "chatgpt":
+		return buildChatGPTNative(ctx, raw)
 	default:
 		return nil, "", fmt.Errorf("unknown type %q", raw.Type)
 	}
+}
+
+func buildChatGPTNative(ctx context.Context, raw config.Provider) (Provider, string, error) {
+	path := getString(raw.Settings, "credentials_file")
+	if path == "" {
+		home, _ := os.UserHomeDir()
+		path = home + "/.codex/auth.json"
+	}
+	if _, err := os.Stat(path); err != nil {
+		return nil, fmt.Sprintf("oauth credentials_file not found: %v (skipped)", err), nil
+	}
+	src, err := NewOpenAIOAuthSource(ctx, OpenAIOAuthConfig{
+		CredentialsFile: path,
+	})
+	if err != nil {
+		return nil, fmt.Sprintf("oauth init failed: %v (skipped)", err), nil
+	}
+	p, err := NewChatGPTNative(ChatGPTNativeConfig{
+		OAuth:   src,
+		BaseURL: getString(raw.Settings, "base_url"),
+	})
+	return p, "", err
 }
 
 func buildOpenAICompat(name string, raw config.Provider) (Provider, string, error) {
