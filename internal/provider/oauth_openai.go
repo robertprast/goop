@@ -154,7 +154,10 @@ func (s *OpenAIOAuthSource) refresh(ctx context.Context) error {
 		ClientID:     s.clientID,
 		GrantType:    "refresh_token",
 		RefreshToken: s.refreshToken,
-		Scope:        "openid profile email offline_access",
+		// Match the scopes the Codex CLI itself requests on refresh
+		// (codex-rs/login/src/server.rs). Omitting the api.connectors.*
+		// scopes silently narrows the token on every rotation.
+		Scope: "openid profile email offline_access api.connectors.read api.connectors.invoke",
 	})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.refreshURL, bytes.NewReader(body))
 	if err != nil {
